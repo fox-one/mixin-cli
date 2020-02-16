@@ -32,6 +32,7 @@ import (
 var (
 	ctx                  = context.Background()
 	_dapp                *dapp.Dapp
+	_keyStoreFile        string
 	_dappCommands        []*cobra.Command
 	_interactiveCommands []*cobra.Command
 
@@ -57,13 +58,14 @@ var rootCmd = &cobra.Command{
 				args = args[1:]
 			}
 
-			app, err := initDapp(name)
+			app, file, err := initDapp(name)
 			if err != nil {
 				cmd.PrintErr(err)
 				return nil
 			}
 
 			_dapp = app
+			_keyStoreFile = file
 			cmd.AddCommand(_dappCommands...)
 			cmd.SetArgs(args)
 			return cmd.Execute()
@@ -71,6 +73,13 @@ var rootCmd = &cobra.Command{
 
 		if len(args) > 0 {
 			return cmd.Usage()
+		}
+
+		// fetch dapp name
+		if _dapp.Name == "" {
+			if profile, err := _dapp.FetchProfile(ctx); err == nil {
+				_dapp.Name = profile.FullName
+			}
 		}
 
 		// promote for action
@@ -99,27 +108,23 @@ func Execute() {
 	}
 }
 
-func initDapp(name string) (*dapp.Dapp, error) {
+func initDapp(name string) (*dapp.Dapp, string, error) {
 	file, err := selectKeyStoreFile(name)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	store, err := dapp.LoadKeyStoreFromFile(file)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	app, err := dapp.New(store)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	if profile, err := app.FetchProfile(ctx); err == nil {
-		app.Name = profile.FullName
-	}
-
-	return app, nil
+	return app, file, nil
 }
 
 func selectKeyStoreFile(name string) (string, error) {

@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"os"
+	"regexp"
 
 	"github.com/chzyer/readline"
 )
@@ -12,6 +14,14 @@ func getArg(args []string, idx int) (string, bool) {
 	}
 
 	return "", false
+}
+
+func validatePin(pin string) error {
+	if match, _ := regexp.MatchString(`^\d{6}$`, pin); !match {
+		return errors.New("pin must have 6 number characters exactly")
+	}
+
+	return nil
 }
 
 type stderr struct{}

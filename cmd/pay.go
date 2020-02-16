@@ -67,7 +67,7 @@ var payCmd = &cobra.Command{
 			return errors.New("memo must have less than 140 characters")
 		}
 
-		cmd.Printf("pay %s %s to %s\n", amount, asset.Symbol, opponentName)
+		cmd.Printf("Pay %s %s to %s\n", amount, asset.Symbol, opponentName)
 
 		var pin string
 		if _dapp.Pin == "" {
@@ -105,14 +105,10 @@ func init() {
 
 func promptPin() (string, error) {
 	prompt := promptui.Prompt{
-		Label: "Pin",
+		Label: "verify pin",
 		Mask:  '*',
 		Validate: func(input string) error {
-			if len(input) != 6 {
-				return errors.New("pin must have 6 characters exactly")
-			}
-
-			return nil
+			return validatePin(input)
 		},
 	}
 
