@@ -1,5 +1,5 @@
 # mixin-cli
-Interactive command-line applications to manager mixin dapps
+Interactive command-line applications to manage mixin dapps
 
 ## Install
 
