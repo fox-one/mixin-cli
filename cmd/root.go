@@ -27,6 +27,7 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -186,5 +187,12 @@ func promptDappCommand(cmd *cobra.Command) error {
 	}
 
 	cmd.SetArgs(args)
+	// reset cmd flags
+	if c, _, err := cmd.Traverse(args); err == nil {
+		c.Flags().VisitAll(func(f *pflag.Flag) {
+			_ = f.Value.Set(f.DefValue)
+		})
+	}
+
 	return cmd.Execute()
 }
