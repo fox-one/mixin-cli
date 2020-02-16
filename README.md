@@ -107,3 +107,15 @@ sign /assets with exp duration 1h0m0s
 eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1ODE4MjM3OTQsImlhdCI6MTU4MTgyMDE5NCwianRpIjoiNzQyYzQ2OWYtNGM1My00NmM2LThiMGEtYjhjZjQ5MWUxYTFlIiwic2NwIjoiRlVMTCIsInNpZCI6ImRiMmYzMmJiLWYyYTUtNDJiMS1iOTQ2LTYzYTRlMTI5YjAyYyIsInNpZyI6Ijg1NzNlYzVhNDdjNjkxZGIzMDczZjkyMjUwNjg3OTk4OWJhYTIwYjgyZmNkMWUxMjZjMDdkYjZiNGI5ZTA3OWUiLCJ1aWQiOiI1YzRmMzBhNi0xZjQ5LTQzYzMtYjM3Yi1jMDFhYWU1MTkxYWYifQ.i2H1AaCSXw5F7rA0iyqHqQxQP34uoecnWEbH-cwfFegtBnjYq1jxAgYNnMautH9_zJbnJ9yHIeDZ80UK7KVDpLz61k0k27tHsPJt8yPFaC5aoW_r3PiqlUIYW59c_tm42IrD_SzNMRGJ_JCQXHr9fU42VyRLaN0A--8TRFWzG6A
 ```
 
+### search user
+
+Search user by identity number or mixin id
+
+```bash
+$ search user 1092365
+
+identity  1092365
+fullname  yiplee
+user_id   8017d200-7870-4b82-b53f-74bae1d2dad7
+mixin_url mixin://users/8017d200-7870-4b82-b53f-74bae1d2dad7
+```
