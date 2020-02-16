@@ -33,7 +33,7 @@ $ go install github.com/fox-one/mixin-cli
 
 ```mixin-cli a``` will load ~/mixin-cli/a.json and enter interactive mode, use quit/q to quit.
 
-```mixin-cli a me``` will load ~/mixin-cli/a.json and execute ```me``` cmd directly.
+```mixin-cli a me``` will load ~/mixin-cli/a.json and execute command ```me``` directly.
 
 ## Commands
 
