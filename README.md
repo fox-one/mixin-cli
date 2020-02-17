@@ -26,14 +26,14 @@ $ go install github.com/fox-one/mixin-cli
 ### Select KeyStore File
 
 1. ```mixin-cli``` load keystore files at ~/.mixin-cli
-2. ```mixin-cli a``` load ~/mixin-cli/a.json or ~/mixin-cli/*/a.json
+2. ```mixin-cli a``` load ~/.mixin-cli/a.json or ~/mixin-cli/*/a.json
 3. ```mixin-cli ./a.json``` load from given path
 
 ## Mode
 
-```mixin-cli a``` will load ~/mixin-cli/a.json and enter interactive mode, use quit/q to quit.
+```mixin-cli a``` will load ~/.mixin-cli/a.json and enter interactive mode, use quit/q to quit.
 
-```mixin-cli a me``` will load ~/mixin-cli/a.json and execute command ```me``` directly.
+```mixin-cli a me``` will load ~/.mixin-cli/a.json and execute command ```me``` directly.
 
 ## Commands
 
