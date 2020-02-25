@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
-	github.com/fox-one/mixin-sdk v1.1.2
+	github.com/fox-one/mixin-sdk v1.1.4-0.20200225172151-a48339e08622
 	github.com/fox-one/pkg v1.1.14
 	github.com/manifoldco/promptui v0.7.0
 	github.com/mitchellh/go-homedir v1.1.0
@@ -12,6 +12,4 @@ require (
 	github.com/spf13/cast v1.3.0
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.3
-	golang.org/x/tools v0.0.0-20190506145303-2d16b83fe98c
-	gopkg.in/alecthomas/kingpin.v3-unstable v3.0.0-20191105091915-95d230a53780 // indirect
 )
