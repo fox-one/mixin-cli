@@ -119,3 +119,61 @@ fullname  yiplee
 user_id   8017d200-7870-4b82-b53f-74bae1d2dad7
 mixin_url mixin://users/8017d200-7870-4b82-b53f-74bae1d2dad7
 ```
+
+### Get Request
+
+Execute HTTP GET Request with path and output the response data
+
+```bash
+$ get /network/snapshots limit=1
+
+[
+   {
+      "amount": "0.0499",
+      "asset": {
+         "asset_id": "6cfe566e-4aad-470b-8c9a-2fd35b49c68d",
+         "asset_key": "eosio.token:EOS",
+         "chain_id": "6cfe566e-4aad-470b-8c9a-2fd35b49c68d",
+         "icon_url": "https://mixin-images.zeromesh.net/a5dtG-IAg2IO0Zm4HxqJoQjfz-5nf1HWZ0teCyOnReMd3pmB8oEdSAXWvFHt2AJkJj5YgfyceTACjGmXnI-VyRo=s128",
+         "name": "EOS",
+         "symbol": "EOS",
+         "type": "asset"
+      },
+      "created_at": "2020-02-26T15:46:31.992668Z",
+      "snapshot_id": "84be7b16-acfd-4f74-86de-595ec4927b72",
+      "source": "TRANSFER_INITIALIZED",
+      "type": "snapshot"
+   }
+]
+```
+
+### Post Request
+
+Execute HTTP GET Request with path and output the response data
+
+```bash
+$ post /attachments
+
+# with body: post /me full_name=new_name
+# with pin:  post /pin/verify --pin
+
+{
+   "type": "attachment",
+   "attachment_id": "5887806d-e63c-46c4-8f17-d03823b6df8f",
+   "upload_url": "https://assets-mixin-one.s3.cn-north-1.amazonaws.com.cn/mixin/attachments/1582732108-c474aa169a065ce2f618be66a426a69c004033c63c8ad58835bcb9799a40c9d5?X-Amz-Algorithm=AWS4-HMAC-SHA256\u0026X-Amz-Credential=AKIAPKOJS6Y7LAXBVZNA%2F20200226%2Fcn-north-1%2Fs3%2Faws4_request\u0026X-Amz-Date=20200226T154828Z\u0026X-Amz-Expires=21600\u0026X-Amz-SignedHeaders=content-type%3Bhost%3Bx-amz-acl\u0026X-Amz-Signature=934c5072c9a5b66533ec5bab5b0280f854426e538a4127685eeeab3fa7af309f",
+   "view_url": "https://mixin-assets-cn.zeromesh.net/mixin/attachments/1582732108-c474aa169a065ce2f618be66a426a69c004033c63c8ad58835bcb9799a40c9d5"
+}
+```
+
+### Upload File
+
+Create an attachment and upload file
+
+```bash
+$ upload ~/Downloads/echo.png
+
+# attachment id
+8d266870-4679-4464-8789-3d267dfbaa8e
+# view url
+https://mixin-assets-cn.zeromesh.net/mixin/attachments/1582732253-857c73a883e6b7c352bc8c14879218a01bf5161f19dcebd2738ae0cdccdab8a6
+```
