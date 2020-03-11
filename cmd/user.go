@@ -84,6 +84,7 @@ var userCmd = &cobra.Command{
 		}
 
 		_, _ = cmd.OutOrStdout().Write(out)
+		cmd.Println()
 	},
 }
 
