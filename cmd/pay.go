@@ -17,6 +17,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/fox-one/mixin-sdk"
@@ -40,8 +41,9 @@ var payCmd = &cobra.Command{
 
 		profile, err := _dapp.FetchUser(ctx, opponent)
 		if err != nil {
-			cmd.PrintErrf("fetch opponent profile failed: %w", err)
+			return fmt.Errorf("fetch opponent profile failed: %w", err)
 		}
+
 		opponentName := profile.FullName
 		if opponentName == "" {
 			opponentName = "anonymous"
@@ -54,7 +56,7 @@ var payCmd = &cobra.Command{
 
 		asset, err := _dapp.ReadAsset(ctx, assetID)
 		if err != nil {
-			cmd.PrintErrf("read asset failed: %w", err)
+			return fmt.Errorf("read asset failed: %w", err)
 		}
 
 		amount, _ := getArg(args, 2)

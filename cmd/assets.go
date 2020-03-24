@@ -101,7 +101,7 @@ var assetsCmd = &cobra.Command{
 			form := columnizeAssets(assets)
 			_ = form.Fprint(cmd.OutOrStdout())
 		}
-
+		
 		cmd.Println("Total Values:", totalValue.String(), "USD")
 		return nil
 	},
