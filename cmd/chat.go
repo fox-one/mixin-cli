@@ -16,19 +16,19 @@ limitations under the License.
 package cmd
 
 import (
-	"fmt"
+	"encoding/base64"
+	"unicode/utf8"
 
 	"github.com/asaskevich/govalidator"
 	"github.com/fox-one/mixin-cli/internal/message"
-	"github.com/fox-one/mixin-sdk"
 	"github.com/fox-one/pkg/uuid"
 	"github.com/spf13/cobra"
 )
 
 var chatCmdFlags struct {
-	TraceID   string   `valid:"uuid"`
-	Recipient string   `valid:"uuid,required"`
-	Messages  []string `valid:"required"`
+	TraceID   string `valid:"uuid"`
+	Recipient string `valid:"uuid,required"`
+	Message   string `valid:"required"`
 }
 
 // chatCmd represents the chat command
@@ -51,23 +51,21 @@ var chatCmd = &cobra.Command{
 			return
 		}
 
-		var requests []*mixin.MessageRequest
-		for idx, msg := range chatCmdFlags.Messages {
-			req, err := message.ParseMessageDate(msg)
-			if err != nil {
-				cmd.PrintErrln(err)
-				return
-			}
-
-			id := fmt.Sprintf("msg-%s-%d", chatCmdFlags.Recipient, idx)
-			req.MessageID = uuid.Modify(chatCmdFlags.TraceID, id)
-			req.ConversationID = conversation.ConversationID
-			req.RecipientID = chatCmdFlags.Recipient
-
-			requests = append(requests, req)
+		if b, err := base64.StdEncoding.DecodeString(chatCmdFlags.Message); err == nil && utf8.Valid(b) {
+			chatCmdFlags.Message = string(b)
 		}
 
-		if err := _dapp.SendMessages(ctx, requests); err != nil {
+		req, err := message.ParseMessageDate(chatCmdFlags.Message)
+		if err != nil {
+			cmd.PrintErrln(err)
+			return
+		}
+
+		req.MessageID = chatCmdFlags.TraceID
+		req.ConversationID = conversation.ConversationID
+		req.RecipientID = chatCmdFlags.Recipient
+
+		if err := _dapp.SendMessage(ctx, req); err != nil {
 			cmd.PrintErrln(err)
 		}
 	},
@@ -77,5 +75,5 @@ func init() {
 	_dappCommands = append(_dappCommands, chatCmd)
 	chatCmd.Flags().StringVarP(&chatCmdFlags.TraceID, "trace", "t", "", "trace id")
 	chatCmd.Flags().StringVarP(&chatCmdFlags.Recipient, "recipient", "r", "", "recipient mixin user id")
-	chatCmd.Flags().StringArrayVarP(&chatCmdFlags.Messages, "msg", "m", nil, "message content")
+	chatCmd.Flags().StringVarP(&chatCmdFlags.Message, "msg", "m", "", "message content")
 }

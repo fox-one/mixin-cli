@@ -16,9 +16,12 @@ const (
 func ParseMessageDate(text string) (*mixin.MessageRequest, error) {
 	typ := plainTextType
 
-	if items := strings.SplitN(text, ":", 2); len(items) == 2 {
-		typ = items[0]
-		text = items[1]
+	if items := strings.SplitN(text, ":", 2); len(items) > 1 {
+		switch items[0] {
+		case plainTextType, postType:
+			typ = items[0]
+			text = items[1]
+		}
 	}
 
 	switch typ {
