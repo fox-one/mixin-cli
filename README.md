@@ -3,10 +3,11 @@ Interactive command-line applications to manage mixin dapps
 
 ## Install
 
-### Go
+### From Source Code
 
 ```bash
-$ go install github.com/fox-one/mixin-cli
+$ git clone git@github.com:fox-one/mixin-cli.git & cd mixin-cli
+$ go install
 ```
 
 ## KeyStore
