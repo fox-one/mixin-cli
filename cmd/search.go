@@ -18,7 +18,7 @@ package cmd
 import (
 	"errors"
 
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/uuid"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -37,13 +37,13 @@ var searchUserCmd = &cobra.Command{
 		arg, _ := getArg(args, 0)
 
 		var (
-			profile *mixin.Profile
+			profile *mixin.User
 			err     error
 		)
 
 		switch {
 		case uuid.IsUUID(arg):
-			profile, err = _dapp.FetchUser(ctx, arg)
+			profile, err = _dapp.ReadUser(ctx, arg)
 		case cast.ToInt64(arg) > 0:
 			profile, err = _dapp.SearchUser(ctx, arg)
 		default:
