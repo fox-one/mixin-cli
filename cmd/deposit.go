@@ -25,7 +25,7 @@ var depositCmd = &cobra.Command{
 	Use:   "deposit",
 	Short: "show payment qrcode",
 	Run: func(cmd *cobra.Command, args []string) {
-		url := "mixin://transfer/" + _dapp.UserID
+		url := "mixin://transfer/" + _dapp.ClientID
 		qrcode.Fprint(cmd.OutOrStdout(), url)
 		cmd.Println("scan the qrcode above by fox or mixin messenger")
 	},

@@ -20,7 +20,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/spf13/cobra"
 )
 

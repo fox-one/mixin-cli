@@ -49,7 +49,7 @@ var getCmd = &cobra.Command{
 		u.RawQuery = query.Encode()
 
 		var resp json.RawMessage
-		if err := _dapp.Request(ctx, "GET", u.String(), nil, &resp); err != nil {
+		if err := _dapp.Get(ctx, u.String(), nil, &resp); err != nil {
 			cmd.PrintErr(err)
 			return
 		}
@@ -94,17 +94,13 @@ var postCmd = &cobra.Command{
 				return
 			}
 
-			encryptPin, err := _dapp.EncryptPIN(pin)
-			if err != nil {
-				cmd.PrintErr(err)
-				return
-			}
+			encryptPin := _dapp.EncryptPin(pin)
 
 			body["pin"] = encryptPin
 		}
 
 		var resp json.RawMessage
-		if err := _dapp.Request(ctx, "POST", u.String(), body, &resp); err != nil {
+		if err := _dapp.Post(ctx, u.String(), body, &resp); err != nil {
 			cmd.PrintErr(err)
 			return
 		}

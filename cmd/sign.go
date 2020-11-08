@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/spf13/cobra"
 )
 
@@ -38,12 +39,10 @@ var signCmd = &cobra.Command{
 
 		exp, _ := cmd.Flags().GetDuration("exp")
 		cmd.Printf("sign %s with exp duration %s\n\n", path, exp)
-		token, err := _dapp.SignToken("GET", path, nil, exp)
-		if err != nil {
-			return err
-		}
+		sig := mixin.SignRaw("GET", path, nil)
+		token := _dapp.SignToken(sig, mixin.RandomTraceID(), exp)
 
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), token)
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), token)
 		return err
 	},
 }

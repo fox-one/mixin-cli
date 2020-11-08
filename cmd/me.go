@@ -16,7 +16,7 @@ limitations under the License.
 package cmd
 
 import (
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/text/columnize"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +26,7 @@ var meCmd = &cobra.Command{
 	Use:   "me",
 	Short: "show current dapp's profile",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		me, err := _dapp.FetchProfile(ctx)
+		me, err := _dapp.UserMe(ctx)
 		if err != nil {
 			return err
 		}
@@ -40,7 +40,7 @@ func init() {
 	_dappCommands = append(_dappCommands, meCmd)
 }
 
-func columnizeProfile(p *mixin.Profile) columnize.Form {
+func columnizeProfile(p *mixin.User) columnize.Form {
 	form := columnize.Form{}
 	form.Append("identity", p.IdentityNumber)
 	form.Append("fullname", p.FullName)

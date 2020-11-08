@@ -20,11 +20,12 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/number"
 	"github.com/fox-one/pkg/text/columnize"
 	"github.com/fox-one/pkg/uuid"
 	"github.com/manifoldco/promptui"
+	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ var payCmd = &cobra.Command{
 			return errors.New("invalid opponent id")
 		}
 
-		profile, err := _dapp.FetchUser(ctx, opponent)
+		profile, err := _dapp.ReadUser(ctx, opponent)
 		if err != nil {
 			return fmt.Errorf("fetch opponent profile failed: %w", err)
 		}
@@ -81,11 +82,11 @@ var payCmd = &cobra.Command{
 		if pin == "" {
 			return nil
 		}
-
+		amnt, _ := decimal.NewFromString(amount)
 		snapshot, err := _dapp.Transfer(ctx, &mixin.TransferInput{
 			AssetID:    assetID,
 			OpponentID: opponent,
-			Amount:     amount,
+			Amount:     amnt,
 			TraceID:    uuid.New(),
 			Memo:       memo,
 		}, pin)

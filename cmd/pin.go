@@ -43,7 +43,7 @@ var pinCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := _dapp.ModifyPIN(ctx, pin, newPin); err != nil {
+		if err := _dapp.ModifyPin(ctx, pin, newPin); err != nil {
 			return err
 		}
 

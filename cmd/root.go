@@ -78,7 +78,7 @@ var rootCmd = &cobra.Command{
 
 		// fetch dapp name
 		if _dapp.Name == "" {
-			if profile, err := _dapp.FetchProfile(ctx); err == nil {
+			if profile, err := _dapp.UserMe(ctx); err == nil {
 				_dapp.Name = profile.FullName
 			}
 		}

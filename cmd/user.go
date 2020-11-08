@@ -23,6 +23,7 @@ import (
 	"path"
 
 	"github.com/fox-one/mixin-cli/dapp"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/encrypt"
 	"github.com/fox-one/pkg/number"
 	"github.com/spf13/cobra"
@@ -40,7 +41,7 @@ var userCmd = &cobra.Command{
 		}
 
 		key := encrypt.RSA.New()
-		user, err := _dapp.CreateUser(ctx, key, name)
+		user, keystore, err := _dapp.CreateUser(ctx, key, name)
 		if err != nil {
 			cmd.PrintErrln("create user", err)
 			return
@@ -56,7 +57,7 @@ var userCmd = &cobra.Command{
 			UserID:     user.UserID,
 			SessionID:  user.SessionID,
 			PrivateKey: string(sessionKey),
-			PinToken:   user.PINToken,
+			PinToken:   user.PinToken,
 			Pin:        "",
 		}
 
@@ -65,7 +66,8 @@ var userCmd = &cobra.Command{
 			pin = number.RandomPin()
 		}
 
-		if err := user.ModifyPIN(ctx, "", pin); err != nil {
+		c, _ := mixin.NewFromKeystore(keystore)
+		if err := c.ModifyPin(ctx, "", pin); err != nil {
 			cmd.PrintErrln("update pin", err)
 			return
 		}

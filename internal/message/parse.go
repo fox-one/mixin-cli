@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 )
 
 const (

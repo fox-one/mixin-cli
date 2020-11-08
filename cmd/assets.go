@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/text/columnize"
 	"github.com/fox-one/pkg/uuid"
 	"github.com/shopspring/decimal"
@@ -43,7 +43,7 @@ var assetsCmd = &cobra.Command{
 			a1, a2 := assets[i], assets[j]
 			v1, v2 := assetUSDValue(a1), assetUSDValue(a2)
 			if v1.Equal(v2) {
-				return a1.PriceUsd.GreaterThan(a2.PriceUsd)
+				return a1.PriceUSD.GreaterThan(a2.PriceUSD)
 			}
 
 			return v1.GreaterThan(v2)
@@ -101,7 +101,7 @@ var assetsCmd = &cobra.Command{
 			form := columnizeAssets(assets)
 			_ = form.Fprint(cmd.OutOrStdout())
 		}
-		
+
 		cmd.Println("Total Values:", totalValue.String(), "USD")
 		return nil
 	},
@@ -113,7 +113,7 @@ func init() {
 }
 
 func assetUSDValue(asset *mixin.Asset) decimal.Decimal {
-	return asset.Balance.Mul(asset.PriceUsd)
+	return asset.Balance.Mul(asset.PriceUSD)
 }
 
 func columnizeAsset(asset *mixin.Asset) (form columnize.Form) {
@@ -121,7 +121,7 @@ func columnizeAsset(asset *mixin.Asset) (form columnize.Form) {
 	form.Append("Symbol", asset.Symbol)
 	form.Append("Name", asset.Name)
 	form.Append("Balance", asset.Balance.String())
-	form.Append("Price(USD)", asset.PriceUsd.String())
+	form.Append("Price(USD)", asset.PriceUSD.String())
 	form.Append("Change", asset.ChangeUsd.Shift(2).Truncate(2).String()+"%")
 	form.Append("Value(USD)", assetUSDValue(asset).StringFixed(2))
 	form.Append("Destination", asset.Destination)
@@ -138,7 +138,7 @@ func columnizeAssets(assets []*mixin.Asset) (form columnize.Form) {
 			asset.AssetID,
 			asset.Symbol,
 			asset.Name,
-			asset.PriceUsd.String(),
+			asset.PriceUSD.String(),
 			asset.ChangeUsd.Shift(2).Truncate(2).String()+"%",
 			asset.Balance.String(),
 			assetUSDValue(asset).StringFixed(2),

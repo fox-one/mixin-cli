@@ -1,28 +1,30 @@
 package dapp
 
 import (
-	"github.com/fox-one/mixin-sdk"
+	"github.com/fox-one/mixin-sdk-go"
 )
 
 type Dapp struct {
-	*mixin.User
+	*mixin.Client
 	Pin  string
 	Name string
 }
 
 func New(store *KeyStore) (*Dapp, error) {
-	user, err := mixin.NewUser(
-		store.UserID,
-		store.SessionID,
-		store.PrivateKey,
-		store.PinToken,
+	c, err := mixin.NewFromKeystore(
+		&mixin.Keystore{
+			ClientID:   store.UserID,
+			SessionID:  store.SessionID,
+			PrivateKey: store.PrivateKey,
+			PinToken:   store.PinToken,
+			Scope:      "FULL",
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	return &Dapp{
-		User: user,
-		Pin:  store.Pin,
+		Client: c,
+		Pin:    store.Pin,
 	}, nil
 }
