@@ -29,6 +29,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var payCmdFlags struct {
+	AutoYes bool
+}
+
 // payCmd represents the pay command
 var payCmd = &cobra.Command{
 	Use:   "pay",
@@ -103,6 +107,7 @@ var payCmd = &cobra.Command{
 }
 
 func init() {
+	payCmd.Flags().BoolVarP(&payCmdFlags.AutoYes, "yes", "y", false, "yes to all payments")
 	_dappCommands = append(_dappCommands, payCmd)
 }
 
@@ -119,6 +124,9 @@ func promptPin() (string, error) {
 }
 
 func conformPay() bool {
+	if payCmdFlags.AutoYes {
+		return true
+	}
 	prompt := promptui.Prompt{
 		Label:     "Continue",
 		IsConfirm: true,
