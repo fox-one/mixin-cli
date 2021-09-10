@@ -26,9 +26,8 @@ $ go install
 
 ### Select KeyStore File
 
-1. ```mixin-cli``` load keystore files at ~/.mixin-cli
-2. ```mixin-cli a``` load ~/.mixin-cli/a.json or ~/mixin-cli/*/a.json
-3. ```mixin-cli ./a.json``` load from given path
+1. ```mixin-cli a``` load ~/.mixin-cli/a.json or ~/mixin-cli/*/a.json
+2. ```mixin-cli ./a.json``` load from given path
 
 ## Mode
 
