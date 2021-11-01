@@ -2,6 +2,7 @@ package asset
 
 import (
 	"github.com/fox-one/mixin-cli/cmd/asset/list"
+	"github.com/fox-one/mixin-cli/cmd/asset/search"
 	"github.com/spf13/cobra"
 )
 
@@ -12,5 +13,6 @@ func NewCmdAsset() *cobra.Command {
 	}
 
 	cmd.AddCommand(list.NewCmdList())
+	cmd.AddCommand(search.NewCmdSearch())
 	return cmd
 }
