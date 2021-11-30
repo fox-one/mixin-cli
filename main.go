@@ -1,5 +1,5 @@
 /*
-Copyright © 2020 yiplee <guoyinl@gmail.com>
+Copyright © 2021 NAME HERE <EMAIL ADDRESS>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,8 +15,52 @@ limitations under the License.
 */
 package main
 
-import "github.com/fox-one/mixin-cli/cmd"
+import (
+	"context"
+	"os"
+
+	"github.com/fox-one/mixin-cli/cmd/root"
+	"github.com/fox-one/mixin-cli/cmdutil"
+	"github.com/fox-one/mixin-cli/session"
+	"github.com/spf13/cobra"
+)
+
+var (
+	version = "2.0.0"
+)
 
 func main() {
-	cmd.Execute()
+	ctx := context.Background()
+	s := &session.Session{Version: version}
+	ctx = session.With(ctx, s)
+
+	expandedArgs := []string{}
+	if len(os.Args) > 0 {
+		expandedArgs = os.Args[1:]
+	}
+
+	rootCmd := root.NewCmdRoot(version)
+
+	if len(expandedArgs) > 0 && !hasCommand(rootCmd, expandedArgs) {
+		name := expandedArgs[0]
+		if b, err := cmdutil.LookupAndLoadKeystore(name); err == nil {
+			if store, pin, err := cmdutil.DecodeKeystore(b); err == nil {
+				s.WithKeystore(store)
+				s.WithPin(pin)
+
+				expandedArgs = expandedArgs[1:]
+			}
+		}
+	}
+
+	rootCmd.SetArgs(expandedArgs)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		rootCmd.PrintErrln("execute failed:", err)
+		os.Exit(1)
+	}
+}
+
+func hasCommand(rootCmd *cobra.Command, args []string) bool {
+	c, _, err := rootCmd.Traverse(args)
+	return err == nil && c != rootCmd
 }

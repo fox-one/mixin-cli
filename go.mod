@@ -3,23 +3,25 @@ module github.com/fox-one/mixin-cli
 go 1.13
 
 require (
-	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
-	github.com/fox-one/mixin-sdk-go v1.3.2
-	github.com/fox-one/pkg v1.3.10
-	github.com/go-resty/resty/v2 v2.5.0 // indirect
-	github.com/go-yaml/yaml v2.1.0+incompatible
-	github.com/lunixbochs/vtclean v1.0.0 // indirect
-	github.com/manifoldco/promptui v0.7.0
-	github.com/mattn/go-colorable v0.1.6 // indirect
-	github.com/mitchellh/go-homedir v1.1.0
-	github.com/shopspring/decimal v1.2.0
+	github.com/andrew-d/go-termutil v0.0.0-20150726205930-009166a695a2
+	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
+	github.com/fox-one/mixin-sdk-go v1.5.1
+	github.com/fox-one/pando v1.8.5
+	github.com/gofrs/uuid v4.1.0+incompatible // indirect
+	github.com/iancoleman/strcase v0.2.0
+	github.com/itchyny/gojq v0.12.5
+	github.com/json-iterator/go v1.1.12
+	github.com/manifoldco/promptui v0.8.0 // indirect
+	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/nojima/httpie-go v0.7.0
+	github.com/ryanuber/columnize v2.1.2+incompatible
+	github.com/shopspring/decimal v1.3.0 // indirect
 	github.com/spf13/cast v1.3.1
-	github.com/spf13/cobra v1.0.0
-	github.com/spf13/pflag v1.0.5
-	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
-	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83 // indirect
-	golang.org/x/net v0.0.0-20210226172049-e18ecbb05110 // indirect
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
-	golang.org/x/sys v0.0.0-20210228012217-479acdf4ea46 // indirect
+	github.com/spf13/cobra v1.1.3
+	github.com/spf13/viper v1.7.1
+	github.com/stretchr/testify v1.7.0
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
+	golang.org/x/sys v0.0.0-20211015200801-69063c4bb744 // indirect
+	google.golang.org/protobuf v1.27.1 // indirect
 )
