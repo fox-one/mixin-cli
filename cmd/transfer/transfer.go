@@ -7,6 +7,7 @@ import (
 
 	"github.com/fox-one/mixin-cli/session"
 	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/pkg/qrcode"
 	"github.com/manifoldco/promptui"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
@@ -14,16 +15,14 @@ import (
 
 func NewCmdTransfer() *cobra.Command {
 	var opt struct {
-		memo string
-		yes  bool
+		input  mixin.TransferInput
+		amount string
+		qrcode bool
+		yes    bool
 	}
 
 	cmd := &cobra.Command{
-		Use:     "pay",
-		Aliases: []string{"pay"},
-		Short:   "transfer assets to other users",
-		Long:    "transfer {opponent_id} {asset_id} {amount} {memo}",
-		Args:    cobra.MinimumNArgs(3),
+		Use: "transfer",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
@@ -33,26 +32,20 @@ func NewCmdTransfer() *cobra.Command {
 				return err
 			}
 
-			opponentID := args[0]
-			opponent, err := client.ReadUser(ctx, opponentID)
-			if err != nil {
-				return fmt.Errorf("read opponent with id %q failed: %w", opponentID, err)
+			input := opt.input
+			input.Amount, _ = decimal.NewFromString(opt.amount)
+
+			if input.TraceID == "" {
+				input.TraceID = mixin.RandomTraceID()
 			}
 
-			assetID := args[1]
-			asset, err := client.ReadAsset(ctx, assetID)
-			if err != nil {
-				return fmt.Errorf("read asset failed: %w", err)
-			}
-
-			amount, _ := decimal.NewFromString(args[2])
-			if !amount.IsPositive() {
+			if !input.Amount.IsPositive() {
 				return errors.New("amount must be positive")
 			}
 
-			memo := opt.memo
-			if memo == "" && len(args) >= 4 {
-				memo = args[3]
+			asset, err := client.ReadAsset(ctx, input.AssetID)
+			if err != nil {
+				return fmt.Errorf("read asset failed: %w", err)
 			}
 
 			pin, _ := s.GetPin()
@@ -60,30 +53,81 @@ func NewCmdTransfer() *cobra.Command {
 				return errors.New("pin is required, use --pin")
 			}
 
-			cmd.Printf("transfer %s %s (balance %s) to %s with memo %q\n", amount, asset.Symbol, asset.Balance, opponent.FullName, memo)
+			var (
+				receiverNames []string
+				execute       func() (interface{}, error)
+			)
 
-			if opt.yes || conformTransfer() {
-				snapshot, err := client.Transfer(ctx, &mixin.TransferInput{
-					AssetID:    assetID,
-					OpponentID: opponent.UserID,
-					Amount:     amount,
-					TraceID:    mixin.RandomTraceID(),
-					Memo:       memo,
-				}, pin)
-
-				if err != nil {
-					return err
+			if count := len(input.OpponentMultisig.Receivers); count > 0 {
+				if t := int(input.OpponentMultisig.Threshold); t <= 0 || t > count {
+					return errors.New("threshold must be in range [1, receivers count]")
 				}
 
-				data, _ := json.MarshalIndent(snapshot, "", "  ")
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				for _, id := range input.OpponentMultisig.Receivers {
+					user, err := client.ReadUser(ctx, id)
+					if err != nil {
+						return fmt.Errorf("read user failed: %w", err)
+					}
+
+					receiverNames = append(receiverNames, user.FullName)
+					execute = func() (interface{}, error) {
+						return client.Transaction(ctx, &input, pin)
+					}
+				}
+			} else {
+				user, err := client.ReadUser(ctx, input.OpponentID)
+				if err != nil {
+					return fmt.Errorf("read user failed: %w", err)
+				}
+
+				receiverNames = append(receiverNames, user.FullName)
+				execute = func() (interface{}, error) {
+					return client.Transfer(ctx, &input, pin)
+				}
 			}
+
+			cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
+
+			if confirmRequired := !(opt.yes || opt.qrcode); confirmRequired && !conformTransfer() {
+				return nil
+			}
+
+			if opt.qrcode {
+				url := mixin.URL.Pay(&input)
+				if len(input.OpponentMultisig.Receivers) > 0 {
+					payment, err := client.VerifyPayment(ctx, input)
+					if err != nil {
+						return fmt.Errorf("verify payment failed: %w", err)
+					}
+
+					url = mixin.URL.Codes(payment.CodeID)
+				}
+
+				cmd.Println(url)
+				qrcode.Print(url)
+				return nil
+			}
+
+			result, err := execute()
+			if err != nil {
+				return fmt.Errorf("transfer failed: %w", err)
+			}
+
+			data, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&opt.memo, "memo", "", "payment memo")
+	cmd.Flags().StringVar(&opt.input.AssetID, "asset", "", "asset id")
+	cmd.Flags().StringVar(&opt.amount, "amount", "", "amount")
+	cmd.Flags().StringVar(&opt.input.TraceID, "trace", "", "trace id")
+	cmd.Flags().StringVar(&opt.input.Memo, "memo", "", "memo")
+	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
+	cmd.Flags().BoolVar(&opt.qrcode, "qrcode", false, "show qrcode")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve payment automatically")
 
 	return cmd

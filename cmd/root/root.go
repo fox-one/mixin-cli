@@ -8,6 +8,7 @@ import (
 	"github.com/andrew-d/go-termutil"
 	"github.com/fox-one/mixin-cli/cmd/asset"
 	"github.com/fox-one/mixin-cli/cmd/http"
+	"github.com/fox-one/mixin-cli/cmd/pay"
 	"github.com/fox-one/mixin-cli/cmd/sign"
 	"github.com/fox-one/mixin-cli/cmd/transfer"
 	"github.com/fox-one/mixin-cli/cmd/upload"
@@ -105,6 +106,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	cmd.AddCommand(http.NewCmdHttp())
 	cmd.AddCommand(user.NewCmdUser())
 	cmd.AddCommand(upload.NewCmdUpload())
+	cmd.AddCommand(pay.NewCmdPay())
 	cmd.AddCommand(transfer.NewCmdTransfer())
 	cmd.AddCommand(withdraw.NewCmdWithdraw())
 	cmd.AddCommand(asset.NewCmdAsset())
