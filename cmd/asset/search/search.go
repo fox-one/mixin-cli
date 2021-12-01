@@ -14,9 +14,8 @@ import (
 
 func NewCmdSearch() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "search <mixin id or identity number>",
-		Short: "search user by mixin id",
-		Args:  cobra.MinimumNArgs(1),
+		Use:  "search <asset id or symbol>",
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
