@@ -10,6 +10,7 @@ import (
 	"github.com/fox-one/mixin-cli/cmd/http"
 	"github.com/fox-one/mixin-cli/cmd/pay"
 	"github.com/fox-one/mixin-cli/cmd/sign"
+	"github.com/fox-one/mixin-cli/cmd/tr"
 	"github.com/fox-one/mixin-cli/cmd/transfer"
 	"github.com/fox-one/mixin-cli/cmd/upload"
 	"github.com/fox-one/mixin-cli/cmd/user"
@@ -110,6 +111,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	cmd.AddCommand(transfer.NewCmdTransfer())
 	cmd.AddCommand(withdraw.NewCmdWithdraw())
 	cmd.AddCommand(asset.NewCmdAsset())
+	tr.Bind(cmd)
 
 	return cmd
 }
