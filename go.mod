@@ -6,8 +6,7 @@ require (
 	github.com/andrew-d/go-termutil v0.0.0-20150726205930-009166a695a2
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/btcsuite/btcutil v1.0.3-0.20211129182920-9c4bbabe7acd // indirect
-	github.com/fox-one/mixin-sdk-go v1.5.6
-	github.com/fox-one/pando v1.8.5
+	github.com/fox-one/mixin-sdk-go v1.6.14
 	github.com/fox-one/pkg v1.5.5
 	github.com/gofrs/uuid v4.2.0+incompatible
 	github.com/iancoleman/strcase v0.2.0
@@ -18,12 +17,13 @@ require (
 	github.com/nojima/httpie-go v0.7.0
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shopspring/decimal v1.3.1
+	github.com/spf13/afero v1.1.2 // indirect
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
-	github.com/stretchr/testify v1.7.0
-	golang.org/x/crypto v0.0.0-20211202192323-5770296d904e // indirect
-	golang.org/x/net v0.0.0-20211208012354-db4efeb81f4b // indirect
-	golang.org/x/sys v0.0.0-20211205182925-97ca703d548d // indirect
-	google.golang.org/protobuf v1.27.1 // indirect
+	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
+	golang.org/x/net v0.0.0-20220615171555-694bf12d69de // indirect
+	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f // indirect
+	golang.org/x/sys v0.0.0-20220614162138-6c1b26c55098 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 )
