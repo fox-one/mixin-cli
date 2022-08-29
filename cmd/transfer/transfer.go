@@ -39,6 +39,10 @@ func NewCmdTransfer() *cobra.Command {
 				input.TraceID = mixin.RandomTraceID()
 			}
 
+			if opt.qrcode && input.OpponentID == "" {
+				input.OpponentID = client.ClientID
+			}
+
 			if !input.Amount.IsPositive() {
 				return errors.New("amount must be positive")
 			}
