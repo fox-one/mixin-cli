@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
 	"github.com/fox-one/mixin-sdk-go"
 	"github.com/manifoldco/promptui"
@@ -51,9 +52,9 @@ func NewCmdWithdraw() *cobra.Command {
 				return errors.New("amount must be positive")
 			}
 
-			pin, _ := s.GetPin()
-			if pin == "" {
-				return errors.New("pin is required, use --pin")
+			pin, err := cmdutil.GetOrReadPin(s)
+			if err != nil {
+				return fmt.Errorf("read pin failed: %w", err)
 			}
 
 			address, err := client.CreateAddress(ctx, mixin.CreateAddressInput{

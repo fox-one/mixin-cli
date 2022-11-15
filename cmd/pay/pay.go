@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
 	"github.com/fox-one/mixin-sdk-go"
 	"github.com/manifoldco/promptui"
@@ -54,9 +55,9 @@ func NewCmdPay() *cobra.Command {
 				memo = args[3]
 			}
 
-			pin, _ := s.GetPin()
-			if pin == "" {
-				return errors.New("pin is required, use --pin")
+			pin, err := cmdutil.GetOrReadPin(s)
+			if err != nil {
+				return fmt.Errorf("read pin failed: %w", err)
 			}
 
 			cmd.Printf("transfer %s %s (balance %s) to %s with memo %q\n", amount, asset.Symbol, asset.Balance, opponent.FullName, memo)
