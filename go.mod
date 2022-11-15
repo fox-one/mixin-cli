@@ -17,13 +17,12 @@ require (
 	github.com/nojima/httpie-go v0.7.0
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shopspring/decimal v1.3.1
-	github.com/spf13/afero v1.1.2 // indirect
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
 	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
 	golang.org/x/net v0.0.0-20220615171555-694bf12d69de // indirect
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f // indirect
-	golang.org/x/sys v0.0.0-20220614162138-6c1b26c55098 // indirect
+	golang.org/x/term v0.2.0
 	google.golang.org/protobuf v1.28.0 // indirect
 )

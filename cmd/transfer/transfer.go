@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
 	"github.com/fox-one/mixin-sdk-go"
 	"github.com/fox-one/pkg/qrcode"
@@ -52,9 +53,25 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("read asset failed: %w", err)
 			}
 
-			pin, _ := s.GetPin()
-			if pin == "" {
-				return errors.New("pin is required, use --pin")
+			if opt.qrcode {
+				url := mixin.URL.Pay(&input)
+				if len(input.OpponentMultisig.Receivers) > 0 {
+					payment, err := client.VerifyPayment(ctx, input)
+					if err != nil {
+						return fmt.Errorf("verify payment failed: %w", err)
+					}
+
+					url = mixin.URL.Codes(payment.CodeID)
+				}
+
+				cmd.Println(url)
+				qrcode.Print(url)
+				return nil
+			}
+
+			pin, err := cmdutil.GetOrReadPin(s)
+			if err != nil {
+				return fmt.Errorf("read pin failed: %w", err)
 			}
 
 			var (
@@ -93,22 +110,6 @@ func NewCmdTransfer() *cobra.Command {
 			cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
 
 			if confirmRequired := !(opt.yes || opt.qrcode); confirmRequired && !conformTransfer() {
-				return nil
-			}
-
-			if opt.qrcode {
-				url := mixin.URL.Pay(&input)
-				if len(input.OpponentMultisig.Receivers) > 0 {
-					payment, err := client.VerifyPayment(ctx, input)
-					if err != nil {
-						return fmt.Errorf("verify payment failed: %w", err)
-					}
-
-					url = mixin.URL.Codes(payment.CodeID)
-				}
-
-				cmd.Println(url)
-				qrcode.Print(url)
 				return nil
 			}
 

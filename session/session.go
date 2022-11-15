@@ -8,7 +8,6 @@ import (
 
 var (
 	ErrKeystoreNotProvided = errors.New("keystore not provided, use --file or --stdin")
-	ErrPinNotProvided      = errors.New("pin not provided, use --pin or include in keystore file")
 )
 
 type Session struct {
@@ -42,12 +41,8 @@ func (s *Session) GetKeystore() (*mixin.Keystore, error) {
 	return nil, ErrKeystoreNotProvided
 }
 
-func (s *Session) GetPin() (string, error) {
-	if s.pin != "" {
-		return s.pin, nil
-	}
-
-	return "", ErrPinNotProvided
+func (s *Session) GetPin() string {
+	return s.pin
 }
 
 func (s *Session) GetClient() (*mixin.Client, error) {
