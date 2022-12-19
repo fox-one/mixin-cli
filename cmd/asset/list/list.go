@@ -1,18 +1,25 @@
 package list
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/asaskevich/govalidator"
 	"github.com/fox-one/mixin-cli/pkg/column"
 	"github.com/fox-one/mixin-cli/pkg/jq"
 	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-sdk-go"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
 func NewCmdList() *cobra.Command {
+	var opt struct {
+		input mixin.TransferInput
+	}
+
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "list assets",
@@ -25,7 +32,12 @@ func NewCmdList() *cobra.Command {
 				return err
 			}
 
-			assets, err := client.ReadAssets(ctx)
+			var assets []*mixin.Asset
+			if len(opt.input.OpponentMultisig.Receivers) > 0 && opt.input.OpponentMultisig.Threshold > 0 {
+				assets, err = readMultisignAssets(ctx, client, opt.input)
+			} else {
+				assets, err = client.ReadAssets(ctx)
+			}
 			if err != nil {
 				return err
 			}
@@ -66,5 +78,64 @@ func NewCmdList() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
+
 	return cmd
+}
+
+func readMultisignAssets(ctx context.Context, client *mixin.Client, input mixin.TransferInput) ([]*mixin.Asset, error) {
+	assets, err := mixin.ReadMultisigAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	assetMap := map[string]*mixin.Asset{}
+	for _, asset := range assets {
+		assetMap[asset.AssetID] = asset
+	}
+
+	result := []*mixin.Asset{}
+	resultMap := map[string]*mixin.Asset{}
+	offset := time.Time{}
+	limit := 500
+	for {
+		outputs, err := client.ListMultisigOutputs(ctx, mixin.ListMultisigOutputsOption{
+			Members:        input.OpponentMultisig.Receivers,
+			Threshold:      input.OpponentMultisig.Threshold,
+			Offset:         offset,
+			Limit:          limit,
+			OrderByCreated: true,
+			State:          mixin.UTXOStateUnspent,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(outputs) == 0 || offset.Equal(outputs[len(outputs)-1].CreatedAt) {
+			break
+		}
+
+		noMore := len(outputs) < limit
+		if outputs[0].CreatedAt.Equal(offset) {
+			outputs = outputs[1:]
+		}
+
+		for _, output := range outputs {
+			a := resultMap[output.AssetID]
+			if a == nil {
+				a = assetMap[output.AssetID]
+				if a == nil {
+					continue
+				}
+				a.Balance = decimal.Zero
+				result = append(result, a)
+				resultMap[output.AssetID] = a
+			}
+			a.Balance = a.Balance.Add(output.Amount)
+		}
+		if noMore {
+			break
+		}
+		offset = outputs[len(outputs)-1].CreatedAt
+	}
+	return result, nil
 }
