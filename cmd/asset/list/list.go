@@ -124,7 +124,11 @@ func readMultisignAssets(ctx context.Context, client *mixin.Client, input mixin.
 			if a == nil {
 				a = assetMap[output.AssetID]
 				if a == nil {
-					continue
+					a = &mixin.Asset{
+						AssetID: output.AssetID,
+						Symbol:  "-",
+						Name:    "-",
+					}
 				}
 				a.Balance = decimal.Zero
 				result = append(result, a)
