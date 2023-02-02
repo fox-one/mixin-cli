@@ -73,7 +73,7 @@ f5ef6b5d-cc5a-3d90-b2c0-a2fd386e7a3c  BOX     BOX Token  43d61dcd-e413-450d-80b8
 get request with query:
 ```bash
 # GET /users/25566?foo=bar
-$ mixin-cli echo http /users/25566 foo==bar
+$ mixin-cli http /users/25566 foo==bar
 
 {
   "type": "user",
