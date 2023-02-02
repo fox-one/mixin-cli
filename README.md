@@ -246,7 +246,7 @@ $ mixin-cli user me
 ### Search user by mixin id or identity number
 
 ```bash
-$ mixin-cli echo user search 25566
+$ mixin-cli user search 25566
 
 {
   "user_id": "fcb87491-4fa0-4c2f-b387-262b63cbc112",
