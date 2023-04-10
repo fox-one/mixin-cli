@@ -11,6 +11,5 @@ func NewCmdKeystore() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdPin())
-	cmd.AddCommand(NewCmdUpdatePrivateKey())
 	return cmd
 }
