@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/andrew-d/go-termutil v0.0.0-20150726205930-009166a695a2
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
-	github.com/fox-one/mixin-sdk-go v1.7.10
+	github.com/fox-one/mixin-sdk-go v1.7.11
 	github.com/fox-one/pkg v1.5.8
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/iancoleman/strcase v0.3.0
