@@ -8,7 +8,6 @@ import (
 	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
-	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -93,27 +92,15 @@ func NewCmdTransfer() *cobra.Command {
 
 			cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
 
-			outputInputs := []*mixin.TransactionOutputInput{
+			builder := mixin.NewSafeTransactionBuilder(outputs)
+			builder.Memo = input.Memo
+			builder.Hint = input.TraceID
+			tx, err := client.MakeTransaction(ctx, builder, []*mixin.TransactionOutput{
 				{
-					Address: *receiver,
+					Address: receiver,
 					Amount:  input.Amount,
 				},
-			}
-			if change := balance.Sub(input.Amount); change.IsPositive() {
-				outputInputs = append(outputInputs, &mixin.TransactionOutputInput{
-					Address: *mixin.RequireNewMixAddress([]string{client.ClientID}, 1),
-					Amount:  change,
-				})
-			}
-
-			tx, err := client.MakeSafeTransaction(
-				ctx,
-				input.TraceID,
-				outputs,
-				outputInputs,
-				nil,
-				input.Memo,
-			)
+			})
 			if err != nil {
 				cmd.Println("MakeSafeTransaction error:", err)
 				return fmt.Errorf("make safe transaction failed: %w", err)
@@ -138,50 +125,33 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("read spend key failed: %w", err)
 			}
 
-			requests, err := client.SafeCreateTransactionRequest(ctx, []*mixin.SafeTransactionRequestInput{
-				{
-					RequestID:      input.TraceID,
-					RawTransaction: raw,
-				},
+			request, err := client.SafeCreateTransactionRequest(ctx, &mixin.SafeTransactionRequestInput{
+				RequestID:      input.TraceID,
+				RawTransaction: raw,
 			})
 			if err != nil {
 				return fmt.Errorf("create transaction request failed: %w", err)
 			}
 
-			outputM := map[mixinnet.Hash]map[uint64]*mixin.SafeUtxo{}
-			for _, output := range outputs {
-				if m, ok := outputM[output.TransactionHash]; ok {
-					m[output.OutputIndex] = output
-				} else {
-					outputM[output.TransactionHash] = map[uint64]*mixin.SafeUtxo{
-						output.OutputIndex: output,
-					}
-				}
-			}
-
-			signedTx, err := mixin.SafeSignTransaction(ctx, *spend, requests[0], outputM)
-			if err != nil {
+			if err := mixin.SafeSignTransaction(tx, *spend, request.Views, 0); err != nil {
 				return fmt.Errorf("sign transaction failed: %w", err)
 			}
-
-			raw, err = signedTx.Dump()
+			raw, err = tx.Dump()
 			if err != nil {
 				return fmt.Errorf("dump signed transaction failed: %w", err)
 			}
 
 			cmd.Println("signed transaction:", raw)
 
-			requests, err = client.SafeSubmitTransactionRequest(ctx, []*mixin.SafeTransactionRequestInput{
-				{
-					RequestID:      input.TraceID,
-					RawTransaction: raw,
-				},
+			request, err = client.SafeSubmitTransactionRequest(ctx, &mixin.SafeTransactionRequestInput{
+				RequestID:      input.TraceID,
+				RawTransaction: raw,
 			})
 			if err != nil {
 				return fmt.Errorf("submit transaction request failed: %w", err)
 			}
 
-			cmd.Println("transaction hash:", requests[0].TransactionHash)
+			cmd.Println("transaction hash:", request.TransactionHash)
 			return nil
 		},
 	}
