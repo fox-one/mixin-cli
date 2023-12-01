@@ -3,7 +3,8 @@ package session
 import (
 	"errors"
 
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 )
 
 var (
@@ -13,9 +14,10 @@ var (
 type Session struct {
 	Version string
 
-	store *mixin.Keystore
-	token string
-	pin   string
+	store    *mixin.Keystore
+	token    string
+	pin      string
+	spendKey *mixinnet.Key
 }
 
 func (s *Session) WithKeystore(store *mixin.Keystore) *Session {
@@ -33,6 +35,11 @@ func (s *Session) WithPin(pin string) *Session {
 	return s
 }
 
+func (s *Session) WithSpendKey(key *mixinnet.Key) *Session {
+	s.spendKey = key
+	return s
+}
+
 func (s *Session) GetKeystore() (*mixin.Keystore, error) {
 	if s.store != nil {
 		return s.store, nil
@@ -43,6 +50,10 @@ func (s *Session) GetKeystore() (*mixin.Keystore, error) {
 
 func (s *Session) GetPin() string {
 	return s.pin
+}
+
+func (s *Session) GetSpendKey() *mixinnet.Key {
+	return s.spendKey
 }
 
 func (s *Session) GetClient() (*mixin.Client, error) {

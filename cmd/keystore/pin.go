@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 
 	"github.com/fox-one/mixin-cli/session"
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +26,7 @@ func NewCmdCreateTipPin() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "new-key",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.Println("new tip pin:", mixin.NewKey(rand.Reader))
+			cmd.Println("new tip pin:", mixinnet.GenerateKey(rand.Reader))
 			return nil
 		},
 	}
@@ -58,6 +60,10 @@ func NewCmdVerifyPin() *cobra.Command {
 }
 
 func NewCmdUpdatePin() *cobra.Command {
+	var opt struct {
+		yes bool
+	}
+
 	cmd := &cobra.Command{
 		Use:  "update <new-pin>",
 		Args: cobra.MinimumNArgs(1),
@@ -75,15 +81,22 @@ func NewCmdUpdatePin() *cobra.Command {
 				cmd.PrintErrf("invalid pin: %s", newPin)
 				return err
 			}
+
+			cmd.Println("new pin:", newPin)
+
 			{
 				newPin := newPin
 				if len(newPin) > 6 {
-					key, err := mixin.KeyFromString(newPin)
+					key, err := mixinnet.KeyFromString(newPin)
 					if err != nil {
 						cmd.PrintErrf("invalid pin: %s", newPin)
 						return err
 					}
 					newPin = key.Public().String()
+				}
+
+				if !opt.yes && !conformContinue() {
+					return nil
 				}
 
 				if err := client.ModifyPin(ctx, s.GetPin(), newPin); err != nil {
@@ -97,5 +110,24 @@ func NewCmdUpdatePin() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve update pin automatically")
 	return cmd
+}
+
+func conformContinue() bool {
+	prompt := promptui.Prompt{
+		Label:     "Continue",
+		IsConfirm: true,
+	}
+	result, err := prompt.Run()
+	if err != nil {
+		return false
+	}
+
+	switch result {
+	case "y", "Y":
+		return true
+	default:
+		return false
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/fox-one/mixin-cli/cmd/keystore"
 	"github.com/fox-one/mixin-cli/cmd/ownership"
 	"github.com/fox-one/mixin-cli/cmd/pay"
+	"github.com/fox-one/mixin-cli/cmd/safe"
 	"github.com/fox-one/mixin-cli/cmd/sign"
 	"github.com/fox-one/mixin-cli/cmd/tr"
 	"github.com/fox-one/mixin-cli/cmd/transfer"
@@ -19,7 +20,7 @@ import (
 	"github.com/fox-one/mixin-cli/cmd/withdraw"
 	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -62,19 +63,25 @@ func NewCmdRoot(version string) *cobra.Command {
 
 			if values := v.AllSettings(); len(values) > 0 {
 				b, _ := jsoniter.Marshal(values)
-				store, pin, err := cmdutil.DecodeKeystore(b)
+				store, err := cmdutil.DecodeKeystore(b)
 				if err != nil {
 					return fmt.Errorf("decode keystore failed: %w", err)
 				}
 
-				if opt.Pin != "" {
-					pin = opt.Pin
+				s.WithKeystore(store.Keystore)
+
+				if store.SpendKey != nil {
+					s.WithSpendKey(store.SpendKey)
 				}
 
-				s.WithKeystore(store)
-
-				if pin != "" {
-					s.WithPin(pin)
+				{
+					pin := store.Pin
+					if opt.Pin != "" {
+						pin = opt.Pin
+					}
+					if pin != "" {
+						s.WithPin(pin)
+					}
 				}
 			}
 
@@ -115,6 +122,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	cmd.AddCommand(asset.NewCmdAsset())
 	cmd.AddCommand(keystore.NewCmdKeystore())
 	cmd.AddCommand(ownership.NewCmdOwnership())
+	cmd.AddCommand(safe.NewCmdSafe())
 	tr.Bind(cmd)
 
 	return cmd

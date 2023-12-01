@@ -7,7 +7,7 @@ import (
 
 	"github.com/fox-one/mixin-cli/cmdutil"
 	"github.com/fox-one/mixin-cli/session"
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/manifoldco/promptui"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"

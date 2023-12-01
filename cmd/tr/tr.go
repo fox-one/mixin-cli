@@ -1,7 +1,7 @@
 package tr
 
 import (
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var commands = []*cobra.Command{
 		Use:  "membersHash",
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Println(mixin.HashMembers(args))
+			cmd.Println(mixinnet.HashMembers(args))
 		},
 	},
 }

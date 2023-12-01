@@ -5,6 +5,7 @@ import (
 	"syscall"
 
 	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"golang.org/x/term"
 )
 
@@ -25,6 +26,30 @@ func GetOrReadPin(s *session.Session) (string, error) {
 		if pin != "" {
 			s.WithPin(pin)
 			return pin, nil
+		}
+	}
+}
+
+func GetOrSpendKey(s *session.Session) (*mixinnet.Key, error) {
+	spendKey := s.GetSpendKey()
+	if spendKey != nil {
+		return spendKey, nil
+	}
+
+	for {
+		fmt.Print("Enter PIN: ")
+		inputData, err := term.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println()
+		spendKey, err := mixinnet.KeyFromString(string(inputData))
+		if err != nil {
+			return nil, err
+		}
+		if spendKey.HasValue() {
+			s.WithSpendKey(&spendKey)
+			return &spendKey, nil
 		}
 	}
 }

@@ -44,9 +44,10 @@ func main() {
 	if len(expandedArgs) > 0 && !hasCommand(rootCmd, expandedArgs) {
 		name := expandedArgs[0]
 		if b, err := cmdutil.LookupAndLoadKeystore(name); err == nil {
-			if store, pin, err := cmdutil.DecodeKeystore(b); err == nil {
-				s.WithKeystore(store)
-				s.WithPin(pin)
+			if store, err := cmdutil.DecodeKeystore(b); err == nil {
+				s.WithKeystore(store.Keystore)
+				s.WithPin(store.Pin)
+				s.WithSpendKey(store.SpendKey)
 
 				expandedArgs = expandedArgs[1:]
 			}

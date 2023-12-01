@@ -10,7 +10,7 @@ import (
 	"github.com/fox-one/mixin-cli/pkg/column"
 	"github.com/fox-one/mixin-cli/pkg/jq"
 	"github.com/fox-one/mixin-cli/session"
-	"github.com/fox-one/mixin-sdk-go"
+	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
