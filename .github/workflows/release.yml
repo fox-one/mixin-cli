@@ -10,7 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: 1.19
+
+      - name: "Docker login"
+        run: docker login ghcr.io -u docker -p ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validates GO releaser config
         uses: docker://goreleaser/goreleaser:latest

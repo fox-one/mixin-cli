@@ -7,20 +7,24 @@ before:
 builds:
 - env:
   - CGO_ENABLED=0
-archives:
-- replacements:
-    darwin: Darwin
-    linux: Linux
-    windows: Windows
-    386: i386
-    amd64: x86_64
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  name_template: "{{ .Tag }}-{{ .ShortCommit }}"
 changelog:
   sort: asc
   filters:
     exclude:
     - '^docs:'
     - '^test:'
+dockers:
+  - id: mixin-cli
+    goos: linux
+    goarch: amd64
+    dockerfile: docker/Dockerfile
+    image_templates:
+      - "ghcr.io/fox-one/{{ .ProjectName }}/mixin-cli:latest"
+      - "ghcr.io/fox-one/{{ .ProjectName }}/mixin-cli:{{ .Major }}"
+      - "ghcr.io/fox-one/{{ .ProjectName }}/mixin-cli:{{ .Major }}.{{ .Minor }}"
+      - "ghcr.io/fox-one/{{ .ProjectName }}/mixin-cli:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+
