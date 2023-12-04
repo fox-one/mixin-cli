@@ -2,16 +2,14 @@ module github.com/fox-one/mixin-cli
 
 go 1.19
 
-replace github.com/fox-one/mixin-sdk-go/v2 => ../mixin-sdk-go
-
 require (
 	github.com/andrew-d/go-termutil v0.0.0-20150726205930-009166a695a2
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
-	github.com/fox-one/mixin-sdk-go/v2 v2.0.0
+	github.com/fox-one/mixin-sdk-go/v2 v2.0.0-20231201142607-316ef3bafb6d
 	github.com/fox-one/pkg v1.5.8
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/iancoleman/strcase v0.3.0
-	github.com/itchyny/gojq v0.12.13
+	github.com/itchyny/gojq v0.12.14
 	github.com/json-iterator/go v1.1.12
 	github.com/manifoldco/promptui v0.9.0
 	github.com/mitchellh/go-homedir v1.1.0
