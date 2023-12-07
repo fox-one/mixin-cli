@@ -16,8 +16,9 @@ func NewCmdMigrate() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:  "migrate <spend-key>",
-		Args: cobra.MinimumNArgs(1),
+		Use:   "migrate <spend-key>",
+		Short: "migrate to safe network",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
