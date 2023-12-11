@@ -49,7 +49,7 @@ func listUnspentOutputs(ctx context.Context, client *mixin.Client) (map[string][
 		}
 
 		for _, item := range items {
-			result[item.Asset.String()] = append(result[item.Asset.String()], item)
+			result[item.AssetID] = append(result[item.AssetID], item)
 			offset = items[len(items)-1].Sequence
 		}
 

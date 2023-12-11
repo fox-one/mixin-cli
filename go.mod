@@ -1,11 +1,11 @@
 module github.com/fox-one/mixin-cli
 
-go 1.19
+go 1.21
 
 require (
 	github.com/andrew-d/go-termutil v0.0.0-20150726205930-009166a695a2
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
-	github.com/fox-one/mixin-sdk-go/v2 v2.0.0-20231201142607-316ef3bafb6d
+	github.com/fox-one/mixin-sdk-go/v2 v2.0.0-20231211055606-de63fc104916
 	github.com/fox-one/pkg v1.5.8
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/iancoleman/strcase v0.3.0
@@ -18,12 +18,12 @@ require (
 	github.com/shopspring/decimal v1.3.1
 	github.com/spf13/cast v1.6.0
 	github.com/spf13/cobra v1.8.0
-	github.com/spf13/viper v1.17.0
+	github.com/spf13/viper v1.18.1
 	golang.org/x/term v0.15.0
 )
 
 require (
-	filippo.io/edwards25519 v1.0.0 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/btcsuite/btcutil v1.0.3-0.20211129182920-9c4bbabe7acd // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/fox-one/msgpack v1.0.0 // indirect
@@ -54,7 +54,7 @@ require (
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.16.0 // indirect
-	golang.org/x/exp v0.0.0-20231127185646-65229373498e // indirect
+	golang.org/x/exp v0.0.0-20231206192017-f3f8817b8deb // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect

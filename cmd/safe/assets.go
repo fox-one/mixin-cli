@@ -33,7 +33,7 @@ func NewCmdAssets() *cobra.Command {
 
 			assetM := map[string]*mixin.SafeAsset{}
 			for _, asset := range assets {
-				assetM[asset.KernalAssetID] = asset
+				assetM[asset.AssetID] = asset
 			}
 
 			cmd.Println("asset", "count", "balance")

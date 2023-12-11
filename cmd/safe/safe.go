@@ -16,6 +16,7 @@ func NewCmdSafe() *cobra.Command {
 	cmd.AddCommand(NewCmdTransfer())
 	cmd.AddCommand(NewCmdDeposit())
 	cmd.AddCommand(NewCmdListDeposit())
+	cmd.AddCommand(NewCmdMixAddress())
 	return cmd
 }
 
