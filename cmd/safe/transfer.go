@@ -20,7 +20,8 @@ func NewCmdTransfer() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use: "transfer",
+		Use:   "transfer",
+		Short: "transfer",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
