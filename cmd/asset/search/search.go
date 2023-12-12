@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/asaskevich/govalidator"
-	"github.com/fox-one/mixin-cli/pkg/column"
-	"github.com/fox-one/mixin-cli/pkg/jq"
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/pkg/column"
+	"github.com/fox-one/mixin-cli/v2/pkg/jq"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/gofrs/uuid"
 	"github.com/spf13/cobra"
 )

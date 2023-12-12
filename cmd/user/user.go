@@ -1,9 +1,9 @@
 package user
 
 import (
-	"github.com/fox-one/mixin-cli/cmd/user/create"
-	"github.com/fox-one/mixin-cli/cmd/user/me"
-	"github.com/fox-one/mixin-cli/cmd/user/search"
+	"github.com/fox-one/mixin-cli/v2/cmd/user/create"
+	"github.com/fox-one/mixin-cli/v2/cmd/user/me"
+	"github.com/fox-one/mixin-cli/v2/cmd/user/search"
 	"github.com/spf13/cobra"
 )
 

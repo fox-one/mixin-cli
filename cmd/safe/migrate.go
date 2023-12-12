@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/fox-one/mixin-cli/cmdutil"
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"github.com/spf13/cobra"
 )

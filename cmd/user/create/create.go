@@ -3,8 +3,8 @@ package create
 import (
 	"fmt"
 
-	"github.com/fox-one/mixin-cli/cmdutil"
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/spf13/cobra"
 )

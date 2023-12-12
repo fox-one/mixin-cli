@@ -19,9 +19,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/fox-one/mixin-cli/cmd/root"
-	"github.com/fox-one/mixin-cli/cmdutil"
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/cmd/root"
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/spf13/cobra"
 )
 

@@ -1,8 +1,8 @@
 package asset
 
 import (
-	"github.com/fox-one/mixin-cli/cmd/asset/list"
-	"github.com/fox-one/mixin-cli/cmd/asset/search"
+	"github.com/fox-one/mixin-cli/v2/cmd/asset/list"
+	"github.com/fox-one/mixin-cli/v2/cmd/asset/search"
 	"github.com/spf13/cobra"
 )
 

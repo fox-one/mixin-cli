@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/asaskevich/govalidator"
-	"github.com/fox-one/mixin-cli/pkg/column"
-	"github.com/fox-one/mixin-cli/pkg/jq"
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/pkg/column"
+	"github.com/fox-one/mixin-cli/v2/pkg/jq"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"

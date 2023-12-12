@@ -1,4 +1,4 @@
-module github.com/fox-one/mixin-cli
+module github.com/fox-one/mixin-cli/v2
 
 go 1.21
 

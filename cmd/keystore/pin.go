@@ -3,7 +3,7 @@ package keystore
 import (
 	"crypto/rand"
 
-	"github.com/fox-one/mixin-cli/session"
+	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"github.com/manifoldco/promptui"
