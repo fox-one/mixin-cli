@@ -3,6 +3,12 @@ Command-line applications to manage mixin dapps
 
 ## Install
 
+### Go Install
+
+```bash
+$ go install github.com/fox-one/mixin-cli/v2@latest
+````
+
 ### From Source Code
 
 ```bash
