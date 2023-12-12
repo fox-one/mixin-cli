@@ -42,8 +42,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
-github.com/fox-one/mixin-sdk-go/v2 v2.0.0-20231211055606-de63fc104916 h1:kriWGpXScpvK+JqxPQamQlLH+eU9hD95Qs09yKvc15k=
-github.com/fox-one/mixin-sdk-go/v2 v2.0.0-20231211055606-de63fc104916/go.mod h1:MhopO473+d7knlprvGfSWz71RLiG5qWq71Odr1YBnwY=
+github.com/fox-one/mixin-sdk-go/v2 v2.0.0 h1:o1LC+l6HtxHf9r2pMpFdXKXo9XfoxBRI3zuLH67un8Y=
+github.com/fox-one/mixin-sdk-go/v2 v2.0.0/go.mod h1:MhopO473+d7knlprvGfSWz71RLiG5qWq71Odr1YBnwY=
 github.com/fox-one/msgpack v1.0.0 h1:atr4La29WdMPCoddlRAPK2e1yhBJ2cEFF+2X93KY5Vs=
 github.com/fox-one/msgpack v1.0.0/go.mod h1:Gf/g5JQGPkB0JrQvfxCu8ZXm4jqXsCPe89mFe8i3vms=
 github.com/fox-one/pkg v1.5.8 h1:pskDchq8eMzpx7b44KKidARNLCsah5vn0+pOZRrbtCE=
