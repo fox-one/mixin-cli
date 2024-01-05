@@ -2,6 +2,8 @@ package cmdutil
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"syscall"
 
@@ -21,6 +23,15 @@ func UserMe(ctx context.Context, s *session.Session) (*mixin.User, error) {
 		return nil, err
 	}
 	return client.UserMe(context.Background())
+}
+
+func DecodeBase64(s string) ([]byte, error) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		b, err = base64.StdEncoding.DecodeString(s)
+	}
+
+	return b, err
 }
 
 func GetOrReadPin(s *session.Session) (string, error) {
@@ -48,7 +59,11 @@ func GetOrReadPin(s *session.Session) (string, error) {
 				}
 
 				if user.TipKeyBase64 != "" {
-					pinKey, err := mixinnet.ParseKeyWithPub(pin, user.TipKeyBase64)
+					tipPub := user.TipKeyBase64
+					if tipPubBts, err := DecodeBase64(tipPub); err == nil {
+						tipPub = hex.EncodeToString(tipPubBts)
+					}
+					pinKey, err := mixinnet.ParseKeyWithPub(pin, tipPub)
 					if err != nil {
 						return "", err
 					}

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 
 	"github.com/fox-one/mixin-cli/v2/cmd/root"
@@ -63,7 +64,11 @@ func main() {
 					}
 
 					if len(pin) > 6 && user.TipKeyBase64 != "" {
-						pinKey, err := mixinnet.ParseKeyWithPub(pin, user.TipKeyBase64)
+						tipPub := user.TipKeyBase64
+						if tipPubBts, err := cmdutil.DecodeBase64(tipPub); err == nil {
+							tipPub = hex.EncodeToString(tipPubBts)
+						}
+						pinKey, err := mixinnet.ParseKeyWithPub(pin, tipPub)
 						if err != nil {
 							rootCmd.PrintErrln("parse pin failed:", err)
 							os.Exit(1)

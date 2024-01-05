@@ -1,6 +1,7 @@
 package root
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -94,7 +95,11 @@ func NewCmdRoot(version string) *cobra.Command {
 					}
 
 					if len(pin) > 6 && user.TipKeyBase64 != "" {
-						pinKey, err := mixinnet.ParseKeyWithPub(pin, user.TipKeyBase64)
+						tipPub := user.TipKeyBase64
+						if tipPubBts, err := cmdutil.DecodeBase64(tipPub); err == nil {
+							tipPub = hex.EncodeToString(tipPubBts)
+						}
+						pinKey, err := mixinnet.ParseKeyWithPub(pin, tipPub)
 						if err != nil {
 							return fmt.Errorf("parse pin key failed: %w", err)
 						}
