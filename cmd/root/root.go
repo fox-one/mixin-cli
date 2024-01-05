@@ -103,9 +103,10 @@ func NewCmdRoot(version string) *cobra.Command {
 						if err != nil {
 							return fmt.Errorf("parse pin key failed: %w", err)
 						}
-						s.WithPin(pinKey.String())
+						pin = pinKey.String()
 					}
 				}
+				s.WithPin(pin)
 			}
 
 			if opt.accessToken != "" {
