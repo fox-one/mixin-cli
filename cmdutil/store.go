@@ -6,7 +6,6 @@ import (
 	"path"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
-	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -14,8 +13,8 @@ import (
 
 type Keystore struct {
 	*mixin.Keystore
-	Pin      string        `json:"pin,omitempty"`
-	SpendKey *mixinnet.Key `json:"spend_key,omitempty"`
+	Pin      string `json:"pin,omitempty"`
+	SpendKey string `json:"spend_key,omitempty"`
 }
 
 func DecodeKeystore(b []byte) (*Keystore, error) {

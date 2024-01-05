@@ -21,6 +21,7 @@ import (
 	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -70,17 +71,34 @@ func NewCmdRoot(version string) *cobra.Command {
 
 				s.WithKeystore(store.Keystore)
 
-				if store.SpendKey != nil {
-					s.WithSpendKey(store.SpendKey)
+				pin := store.Pin
+				if opt.Pin != "" {
+					pin = opt.Pin
 				}
-
-				{
-					pin := store.Pin
-					if opt.Pin != "" {
-						pin = opt.Pin
+				if store.SpendKey != "" || len(pin) > 6 {
+					client, err := mixin.NewFromKeystore(store.Keystore)
+					if err != nil {
+						return fmt.Errorf("new client failed: %w", err)
 					}
-					if pin != "" {
-						s.WithPin(pin)
+					user, err := client.UserMe(cmd.Context())
+					if err != nil {
+						return fmt.Errorf("user me failed: %w", err)
+					}
+
+					if store.SpendKey != "" && user.SpendPublicKey != "" {
+						spendKey, err := mixinnet.ParseKeyWithPub(store.SpendKey, user.SpendPublicKey)
+						if err != nil {
+							return fmt.Errorf("parse spend key failed: %w", err)
+						}
+						s.WithSpendKey(&spendKey)
+					}
+
+					if len(pin) > 6 && user.TipKeyBase64 != "" {
+						pinKey, err := mixinnet.ParseKeyWithPub(pin, user.TipKeyBase64)
+						if err != nil {
+							return fmt.Errorf("parse pin key failed: %w", err)
+						}
+						s.WithPin(pinKey.String())
 					}
 				}
 			}

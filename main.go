@@ -22,6 +22,8 @@ import (
 	"github.com/fox-one/mixin-cli/v2/cmd/root"
 	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/session"
+	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +48,38 @@ func main() {
 		if b, err := cmdutil.LookupAndLoadKeystore(name); err == nil {
 			if store, err := cmdutil.DecodeKeystore(b); err == nil {
 				s.WithKeystore(store.Keystore)
-				s.WithPin(store.Pin)
-				s.WithSpendKey(store.SpendKey)
+				pin := store.Pin
+				if len(pin) > 6 || store.SpendKey != "" {
+					client, err := mixin.NewFromKeystore(store.Keystore)
+					if err != nil {
+						rootCmd.PrintErrln("new client failed:", err)
+						os.Exit(1)
+					}
+
+					user, err := client.UserMe(ctx)
+					if err != nil {
+						rootCmd.PrintErrln("user me failed:", err)
+						os.Exit(1)
+					}
+
+					if len(pin) > 6 && user.TipKeyBase64 != "" {
+						pinKey, err := mixinnet.ParseKeyWithPub(pin, user.TipKeyBase64)
+						if err != nil {
+							rootCmd.PrintErrln("parse pin failed:", err)
+							os.Exit(1)
+						}
+						pin = pinKey.String()
+					}
+					if store.SpendKey != "" && user.SpendPublicKey != "" {
+						spendKey, err := mixinnet.ParseKeyWithPub(store.SpendKey, user.SpendPublicKey)
+						if err != nil {
+							rootCmd.PrintErrln("parse spend key failed:", err)
+							os.Exit(1)
+						}
+						s.WithSpendKey(&spendKey)
+					}
+				}
+				s.WithPin(pin)
 
 				expandedArgs = expandedArgs[1:]
 			}

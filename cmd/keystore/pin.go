@@ -1,7 +1,7 @@
 package keystore
 
 import (
-	"crypto/rand"
+	"encoding/hex"
 
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
@@ -26,7 +26,18 @@ func NewCmdCreateTipPin() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "new-key",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.Println("new tip pin:", mixinnet.GenerateKey(rand.Reader))
+			key := mixinnet.GenerateEd25519Key()
+			seed := hex.EncodeToString(key.Seed())
+			cmd.Println("ed25519_key:", hex.EncodeToString(key))
+			cmd.Println("seed:", seed)
+
+			{
+				key, err := mixinnet.KeyFromSeed(seed)
+				if err != nil {
+					return err
+				}
+				cmd.Println("key:", key)
+			}
 			return nil
 		},
 	}
