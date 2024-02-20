@@ -8,6 +8,7 @@ import (
 	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/pkg/qrcode"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,7 @@ func NewCmdTransfer() *cobra.Command {
 		input  mixin.TransferInput
 		amount string
 		yes    bool
+		qrcode bool
 	}
 
 	cmd := &cobra.Command{
@@ -51,6 +53,14 @@ func NewCmdTransfer() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("list unspent outputs failed: %w", err)
 			}
+
+			if opt.qrcode {
+				url := mixin.URL.SafePay(&input)
+				cmd.Println(url)
+				qrcode.Print(url)
+				return nil
+			}
+
 			balance := decimal.Zero
 			for i, utxo := range outputs {
 				if balance = balance.Add(utxo.Amount); balance.GreaterThan(input.Amount) {
@@ -165,6 +175,7 @@ func NewCmdTransfer() *cobra.Command {
 	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve payment automatically")
+	cmd.Flags().BoolVar(&opt.qrcode, "qrcode", false, "show qrcode")
 
 	return cmd
 }
