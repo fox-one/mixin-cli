@@ -8,6 +8,8 @@ import (
 	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
+	"github.com/fox-one/pkg/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -34,10 +36,6 @@ func NewCmdTransfer() *cobra.Command {
 			input := opt.input
 			input.Amount, _ = decimal.NewFromString(opt.amount)
 
-			if input.TraceID == "" {
-				input.TraceID = mixin.RandomTraceID()
-			}
-
 			if !input.Amount.IsPositive() {
 				return errors.New("amount must be positive")
 			}
@@ -47,73 +45,125 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("read asset failed: %w", err)
 			}
 
-			outputs, err := listAssetUnspentOutputs(ctx, client, asset.KernelAssetID)
-			if err != nil {
-				return fmt.Errorf("list unspent outputs failed: %w", err)
-			}
-			balance := decimal.Zero
-			for i, utxo := range outputs {
-				if balance = balance.Add(utxo.Amount); balance.GreaterThan(input.Amount) {
-					outputs = outputs[:i+1]
-					break
-				}
-			}
-			if balance.LessThan(input.Amount) {
-				return errors.New("insufficient balance")
-			}
-
 			var (
-				receiverNames []string
-				receiver      *mixin.MixAddress
+				tx  *mixinnet.Transaction
+				raw string
 			)
-
-			if count := len(input.OpponentMultisig.Receivers); count > 0 {
-				if t := int(input.OpponentMultisig.Threshold); t <= 0 || t > count {
-					return errors.New("threshold must be in range [1, receivers count]")
+			if input.TraceID != "" {
+				request, err := client.SafeReadMultisigRequests(ctx, input.TraceID)
+				if err == nil {
+					raw = request.RawTransaction
+					tx, err = mixinnet.TransactionFromRaw(raw)
+					if err != nil {
+						return fmt.Errorf("parse transaction failed: %w", err)
+					}
+				} else if !mixin.IsErrorCodes(err, 404) {
+					return fmt.Errorf("read multisig request failed: %w", err)
 				}
-				receiver = mixin.RequireNewMixAddress(input.OpponentMultisig.Receivers, byte(input.OpponentMultisig.Threshold))
+			}
 
-				for _, id := range input.OpponentMultisig.Receivers {
-					user, err := client.ReadUser(ctx, id)
+			if input.TraceID == "" {
+				input.TraceID = mixin.RandomTraceID()
+				cmd.Println("trace id:", input.TraceID)
+			}
+
+			if tx == nil {
+				outputs, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
+					State: mixin.SafeUtxoStateUnspent,
+					Asset: asset.KernelAssetID,
+					Limit: 256,
+				})
+				if err != nil {
+					return fmt.Errorf("list unspent outputs failed: %w", err)
+				}
+
+				if len(outputs) > 256 {
+					outputs = outputs[:256]
+				}
+				balance := decimal.Zero
+				for i, utxo := range outputs {
+					if balance = balance.Add(utxo.Amount); balance.GreaterThan(input.Amount) {
+						outputs = outputs[:i+1]
+						break
+					}
+				}
+				if balance.LessThan(input.Amount) {
+					if len(outputs) < 256 {
+						return errors.New("insufficient balance")
+					} else {
+						cmd.Println("insufficient balance, try to merge 256 outputs?")
+						// if !conformContinue() {
+						// 	return errors.New("insufficient balance")
+						// }
+					}
+
+					input.TraceID = mixin.RandomTraceID()
+					cmd.Println("trace id:", input.TraceID)
+					input.Amount = balance
+					input.OpponentMultisig.Receivers = []string{client.ClientID}
+					input.OpponentMultisig.Threshold = 1
+					input.Memo = "merge outputs"
+				}
+
+				var (
+					receiverNames []string
+					receiver      *mixin.MixAddress
+				)
+
+				if count := len(input.OpponentMultisig.Receivers); count > 0 {
+					if t := int(input.OpponentMultisig.Threshold); t <= 0 || t > count {
+						return errors.New("threshold must be in range [1, receivers count]")
+					}
+
+					if _, err := uuid.FromString(input.OpponentMultisig.Receivers[0]); err != nil {
+						receiver = mixin.RequireNewMainnetMixAddress(input.OpponentMultisig.Receivers, byte(input.OpponentMultisig.Threshold))
+						receiverNames = input.OpponentMultisig.Receivers
+					} else {
+						receiver = mixin.RequireNewMixAddress(input.OpponentMultisig.Receivers, byte(input.OpponentMultisig.Threshold))
+						for _, id := range input.OpponentMultisig.Receivers {
+							user, err := client.ReadUser(ctx, id)
+							if err != nil {
+								return fmt.Errorf("read user failed: %w", err)
+							}
+
+							receiverNames = append(receiverNames, user.FullName)
+						}
+					}
+
+				} else {
+					user, err := client.ReadUser(ctx, input.OpponentID)
 					if err != nil {
 						return fmt.Errorf("read user failed: %w", err)
 					}
+					receiver = mixin.RequireNewMixAddress([]string{input.OpponentID}, 1)
 
 					receiverNames = append(receiverNames, user.FullName)
 				}
-			} else {
-				user, err := client.ReadUser(ctx, input.OpponentID)
+
+				cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
+
+				builder := mixin.NewSafeTransactionBuilder(outputs)
+				builder.Memo = input.Memo
+				builder.Hint = input.TraceID
+				tx, err = client.MakeTransaction(ctx, builder, []*mixin.TransactionOutput{
+					{
+						Address: receiver,
+						Amount:  input.Amount,
+					},
+				})
 				if err != nil {
-					return fmt.Errorf("read user failed: %w", err)
+					cmd.Println("MakeSafeTransaction error:", err)
+					return fmt.Errorf("make safe transaction failed: %w", err)
 				}
-				receiver = mixin.RequireNewMixAddress([]string{input.OpponentID}, 1)
 
-				receiverNames = append(receiverNames, user.FullName)
-			}
-
-			cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
-
-			builder := mixin.NewSafeTransactionBuilder(outputs)
-			builder.Memo = input.Memo
-			builder.Hint = input.TraceID
-			tx, err := client.MakeTransaction(ctx, builder, []*mixin.TransactionOutput{
-				{
-					Address: receiver,
-					Amount:  input.Amount,
-				},
-			})
-			if err != nil {
-				cmd.Println("MakeSafeTransaction error:", err)
-				return fmt.Errorf("make safe transaction failed: %w", err)
+				raw, err = tx.Dump()
+				if err != nil {
+					return fmt.Errorf("dump transaction failed: %w", err)
+				}
 			}
 
 			bts, _ := json.MarshalIndent(tx, "", "  ")
 			cmd.Println(string(bts))
-
-			raw, err := tx.Dump()
-			if err != nil {
-				return fmt.Errorf("dump transaction failed: %w", err)
-			}
 
 			cmd.Println("raw transaction:", raw)
 

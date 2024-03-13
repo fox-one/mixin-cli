@@ -9,14 +9,14 @@ import (
 func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset string) ([]*mixin.SafeUtxo, error) {
 	var result []*mixin.SafeUtxo
 
-	const LIMIT = 500
+	const LIMIT = 256
 	var offset uint64
 	for {
 		items, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
 			Offset: offset,
 			State:  mixin.SafeUtxoStateUnspent,
 			Asset:  asset,
-			Limit:  500,
+			Limit:  LIMIT,
 		})
 		if err != nil {
 			return nil, err
@@ -24,7 +24,7 @@ func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset st
 
 		result = append(result, items...)
 		if len(items) > 0 {
-			offset = items[len(items)-1].Sequence
+			offset = items[len(items)-1].Sequence + 1
 		}
 
 		if len(items) < LIMIT {
@@ -36,13 +36,13 @@ func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset st
 func listUnspentOutputs(ctx context.Context, client *mixin.Client) (map[string][]*mixin.SafeUtxo, error) {
 	var result = map[string][]*mixin.SafeUtxo{}
 
-	const LIMIT = 500
+	const LIMIT = 256
 	var offset uint64
 	for {
 		items, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
 			Offset: offset,
 			State:  mixin.SafeUtxoStateUnspent,
-			Limit:  500,
+			Limit:  LIMIT,
 		})
 		if err != nil {
 			return nil, err
@@ -50,7 +50,7 @@ func listUnspentOutputs(ctx context.Context, client *mixin.Client) (map[string][
 
 		for _, item := range items {
 			result[item.AssetID] = append(result[item.AssetID], item)
-			offset = items[len(items)-1].Sequence
+			offset = items[len(items)-1].Sequence + 1
 		}
 
 		if len(items) < LIMIT {
