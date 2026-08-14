@@ -9,17 +9,12 @@ import (
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
-	"github.com/fox-one/pkg/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
 func NewCmdTransfer() *cobra.Command {
-	var opt struct {
-		input  mixin.TransferInput
-		amount string
-		yes    bool
-	}
+	var opt safeTransferOptions
 
 	cmd := &cobra.Command{
 		Use:   "transfer",
@@ -33,34 +28,42 @@ func NewCmdTransfer() *cobra.Command {
 				return err
 			}
 
+			if opt.input.TraceID != "" {
+				request, err := readSafeMultisigRequest(ctx, client, opt.input.TraceID)
+				if err == nil {
+					return continueSafeMultisigTransfer(cmd, client, request, opt)
+				}
+				if !mixin.IsErrorCodes(err, 404) {
+					return fmt.Errorf("read multisig request failed: %w", err)
+				}
+			}
+
 			input := opt.input
 			input.Amount, _ = decimal.NewFromString(opt.amount)
 
 			if !input.Amount.IsPositive() {
 				return errors.New("amount must be positive")
 			}
+			if input.AssetID == "" {
+				return errors.New("asset is required")
+			}
+			if opt.isMultisigSource() {
+				return createSafeMultisigTransfer(cmd, client, input, opt)
+			}
 
 			asset, err := client.SafeReadAsset(ctx, input.AssetID)
 			if err != nil {
 				return fmt.Errorf("read asset failed: %w", err)
+			}
+			kernelAsset, err := mixinnet.HashFromString(asset.KernelAssetID)
+			if err != nil {
+				return fmt.Errorf("invalid kernel asset id: %w", err)
 			}
 
 			var (
 				tx  *mixinnet.Transaction
 				raw string
 			)
-			if input.TraceID != "" {
-				request, err := client.SafeReadMultisigRequests(ctx, input.TraceID)
-				if err == nil {
-					raw = request.RawTransaction
-					tx, err = mixinnet.TransactionFromRaw(raw)
-					if err != nil {
-						return fmt.Errorf("parse transaction failed: %w", err)
-					}
-				} else if !mixin.IsErrorCodes(err, 404) {
-					return fmt.Errorf("read multisig request failed: %w", err)
-				}
-			}
 
 			if input.TraceID == "" {
 				input.TraceID = mixin.RandomTraceID()
@@ -71,24 +74,24 @@ func NewCmdTransfer() *cobra.Command {
 				outputs, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
 					State: mixin.SafeUtxoStateUnspent,
 					Asset: asset.KernelAssetID,
-					Limit: 256,
+					Limit: safeTransactionInputLimit,
 				})
 				if err != nil {
 					return fmt.Errorf("list unspent outputs failed: %w", err)
 				}
 
-				if len(outputs) > 256 {
-					outputs = outputs[:256]
+				if len(outputs) > safeTransactionInputLimit {
+					outputs = outputs[:safeTransactionInputLimit]
 				}
 				balance := decimal.Zero
 				for i, utxo := range outputs {
-					if balance = balance.Add(utxo.Amount); balance.GreaterThan(input.Amount) {
+					if balance = balance.Add(utxo.Amount); !balance.LessThan(input.Amount) {
 						outputs = outputs[:i+1]
 						break
 					}
 				}
 				if balance.LessThan(input.Amount) {
-					if len(outputs) < 256 {
+					if len(outputs) < safeTransactionInputLimit {
 						return errors.New("insufficient balance")
 					} else {
 						cmd.Println("insufficient balance, try to merge 256 outputs?")
@@ -104,40 +107,13 @@ func NewCmdTransfer() *cobra.Command {
 					input.OpponentMultisig.Threshold = 1
 					input.Memo = "merge outputs"
 				}
+				if err := validateSafeSourceOutputs(outputs, []string{client.ClientID}, 1, kernelAsset); err != nil {
+					return err
+				}
 
-				var (
-					receiverNames []string
-					receiver      *mixin.MixAddress
-				)
-
-				if count := len(input.OpponentMultisig.Receivers); count > 0 {
-					if t := int(input.OpponentMultisig.Threshold); t <= 0 || t > count {
-						return errors.New("threshold must be in range [1, receivers count]")
-					}
-
-					if _, err := uuid.FromString(input.OpponentMultisig.Receivers[0]); err != nil {
-						receiver = mixin.RequireNewMainnetMixAddress(input.OpponentMultisig.Receivers, byte(input.OpponentMultisig.Threshold))
-						receiverNames = input.OpponentMultisig.Receivers
-					} else {
-						receiver = mixin.RequireNewMixAddress(input.OpponentMultisig.Receivers, byte(input.OpponentMultisig.Threshold))
-						for _, id := range input.OpponentMultisig.Receivers {
-							user, err := client.ReadUser(ctx, id)
-							if err != nil {
-								return fmt.Errorf("read user failed: %w", err)
-							}
-
-							receiverNames = append(receiverNames, user.FullName)
-						}
-					}
-
-				} else {
-					user, err := client.ReadUser(ctx, input.OpponentID)
-					if err != nil {
-						return fmt.Errorf("read user failed: %w", err)
-					}
-					receiver = mixin.RequireNewMixAddress([]string{input.OpponentID}, 1)
-
-					receiverNames = append(receiverNames, user.FullName)
+				receiver, receiverNames, err := safeTransferReceiver(ctx, client, input)
+				if err != nil {
+					return err
 				}
 
 				cmd.Printf("Transfer %s %s to %s\n", input.Amount, asset.Symbol, receiverNames)
@@ -183,6 +159,14 @@ func NewCmdTransfer() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("create transaction request failed: %w", err)
 			}
+			if len(request.Views) != len(tx.Inputs) {
+				return fmt.Errorf("invalid transaction views: got %d for %d inputs", len(request.Views), len(tx.Inputs))
+			}
+			for i, view := range request.Views {
+				if _, err := view.ToScalar(); err != nil {
+					return fmt.Errorf("invalid transaction view %d: %w", i, err)
+				}
+			}
 
 			if err := mixin.SafeSignTransaction(tx, *spend, request.Views, 0); err != nil {
 				return fmt.Errorf("sign transaction failed: %w", err)
@@ -214,7 +198,23 @@ func NewCmdTransfer() *cobra.Command {
 	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
 	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
+	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members")
+	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve payment automatically")
 
+	cmd.AddCommand(newCmdCancelSafeMultisigSignature())
+
 	return cmd
+}
+
+type safeTransferOptions struct {
+	input           mixin.TransferInput
+	amount          string
+	senders         []string
+	senderThreshold uint8
+	yes             bool
+}
+
+func (opt safeTransferOptions) isMultisigSource() bool {
+	return len(opt.senders) > 0 || opt.senderThreshold > 0
 }
