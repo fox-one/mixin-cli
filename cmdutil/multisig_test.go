@@ -108,3 +108,42 @@ func TestNormalizeMultisigDestinationRejectsConflicts(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeMultisigSourceExpandsAddress(t *testing.T) {
+	members := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	address, err := mixin.NewMixAddress(members, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	senders := []string{address.String()}
+	var threshold uint8
+	if err := NormalizeMultisigSource(&senders, &threshold); err != nil {
+		t.Fatal(err)
+	}
+	if threshold != 2 {
+		t.Fatalf("threshold = %d, want 2", threshold)
+	}
+	for i := range members {
+		if senders[i] != members[i] {
+			t.Fatalf("sender %d = %q, want %q", i, senders[i], members[i])
+		}
+	}
+}
+
+func TestNormalizeMultisigSourceRejectsThresholdConflict(t *testing.T) {
+	address, err := mixin.NewMixAddress([]string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	senders := []string{address.String()}
+	threshold := uint8(1)
+	if err := NormalizeMultisigSource(&senders, &threshold); err == nil {
+		t.Fatal("expected sender threshold conflict")
+	}
+}

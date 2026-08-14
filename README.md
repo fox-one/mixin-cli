@@ -256,8 +256,10 @@ $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
 
 ### Transfer from a legacy multisig group
 
-`--senders` and `--sender-threshold` identify the source multisig account. The
-existing `--opponent` or `--receivers` flags still identify the destination.
+`--senders` and `--sender-threshold` identify the source multisig account. You
+may instead pass one encoded source address with `--senders MIX...`; its members
+and threshold are decoded automatically. The existing `--opponent` or
+`--receivers` flags still identify the destination.
 Every signer re-runs the same command with the same trace and transfer fields;
 the first signer creates the request and later signers join it.
 
@@ -289,6 +291,8 @@ Safe transfers accept the same destination forms: receiver members plus
 
 The first signer supplies the complete transfer. Later signers may pass only
 the trace because Safe requests are directly addressable by trace/request ID.
+Safe source multisigs also accept `--senders MIX...` without a separate
+`--sender-threshold`.
 
 ```bash
 $ mixin-cli safe transfer \

@@ -10,7 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type fakeSafeUtxoLister struct {
+type fakeSafeAssetsUtxoLister struct {
 	calls   []mixin.SafeListUtxoOption
 	outputs [][]*mixin.SafeUtxo
 }
@@ -28,7 +28,7 @@ func (f *stalledSafeUtxoLister) SafeListUtxos(context.Context, mixin.SafeListUtx
 	return f.page, nil
 }
 
-func (f *fakeSafeUtxoLister) SafeListUtxos(_ context.Context, opt mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error) {
+func (f *fakeSafeAssetsUtxoLister) SafeListUtxos(_ context.Context, opt mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error) {
 	f.calls = append(f.calls, opt)
 	return f.outputs[len(f.calls)-1], nil
 }
@@ -47,7 +47,7 @@ func TestListUnspentOutputsForSafeMultisig(t *testing.T) {
 		Amount:   decimal.NewFromInt(2),
 		Sequence: 266,
 	}}
-	lister := &fakeSafeUtxoLister{outputs: [][]*mixin.SafeUtxo{firstPage, secondPage}}
+	lister := &fakeSafeAssetsUtxoLister{outputs: [][]*mixin.SafeUtxo{firstPage, secondPage}}
 	members := []string{"member-a", "member-b"}
 
 	outputs, err := listUnspentOutputs(context.Background(), lister, members, 2)
@@ -86,7 +86,7 @@ func TestListUnspentOutputsForMixAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lister := &fakeSafeUtxoLister{outputs: [][]*mixin.SafeUtxo{nil}}
+	lister := &fakeSafeAssetsUtxoLister{outputs: [][]*mixin.SafeUtxo{nil}}
 
 	if _, err := listUnspentOutputs(context.Background(), lister, []string{address.String()}, 0); err != nil {
 		t.Fatal(err)

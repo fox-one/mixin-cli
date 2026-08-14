@@ -15,6 +15,10 @@ func NormalizeMultisigDestination(input *mixin.TransferInput) error {
 	return normalizeMultisigGroup(&input.OpponentMultisig.Receivers, &input.OpponentMultisig.Threshold, "receiver")
 }
 
+func NormalizeMultisigSource(senders *[]string, threshold *uint8) error {
+	return normalizeMultisigGroup(senders, threshold, "sender")
+}
+
 func normalizeMultisigGroup(members *[]string, threshold *uint8, role string) error {
 	if members == nil || threshold == nil {
 		return fmt.Errorf("multisig %s input is required", role)

@@ -761,6 +761,9 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 
 			raw := opt.raw
 			if raw == "" {
+				if err := cmdutil.NormalizeMultisigSource(&opt.senders, &opt.senderThreshold); err != nil {
+					return err
+				}
 				if err := cmdutil.NormalizeMultisigDestination(&opt.input); err != nil {
 					return err
 				}
@@ -830,7 +833,7 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
 	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receiver members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
-	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members")
+	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")
 	cmd.Flags().StringVar(&opt.raw, "raw", "", "existing signed raw transaction")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "cancel signature without confirmation")
