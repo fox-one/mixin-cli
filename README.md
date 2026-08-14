@@ -244,6 +244,53 @@ $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
 }
 ```
 
+### Transfer from a legacy multisig group
+
+`--senders` and `--sender-threshold` identify the source multisig account. The
+existing `--opponent` or `--receivers` flags still identify the destination.
+Every signer re-runs the same command with the same trace and transfer fields;
+the first signer creates the request and later signers join it.
+
+```bash
+$ mixin-cli transfer \
+  --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
+  --amount 100 \
+  --trace 917ec61f-d703-472f-afd4-6f32c99ea8af \
+  --senders 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --senders 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --sender-threshold 2 \
+  --opponent fcb87491-4fa0-4c2f-b387-262b63cbc112 \
+  --memo hahaha
+```
+
+Cancel the current user's signature with the same fields, or pass the signed
+raw transaction directly:
+
+```bash
+$ mixin-cli transfer cancel <same transfer flags>
+$ mixin-cli transfer cancel --raw <signed-raw-transaction>
+$ mixin-cli transfer cancel-request --request <multisig-request-id>
+```
+
+### Transfer from a Safe multisig group
+
+The first signer supplies the complete transfer. Later signers may pass only
+the trace because Safe requests are directly addressable by trace/request ID.
+
+```bash
+$ mixin-cli safe transfer \
+  --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
+  --amount 100 \
+  --trace 917ec61f-d703-472f-afd4-6f32c99ea8af \
+  --senders 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --senders 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --sender-threshold 2 \
+  --opponent fcb87491-4fa0-4c2f-b387-262b63cbc112
+
+$ mixin-cli safe transfer --trace 917ec61f-d703-472f-afd4-6f32c99ea8af
+$ mixin-cli safe transfer cancel --trace 917ec61f-d703-472f-afd4-6f32c99ea8af
+```
+
 ### Upload a file as attachment
 
 ```bash
