@@ -221,6 +221,9 @@ $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
 
 ### Transfer to a multisig group
 
+Pass either the receiver members with `--threshold`, or a single encoded `MIX...`
+multisig address. The address already contains its members and threshold.
+
 ```bash
 $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
 --amount 100 \
@@ -242,6 +245,13 @@ $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
   "transaction_hash": "941bd691338f8077cfe7edb53a0315c0299e514921f1af9964828629f413ee95",
   "snapshot_at": "0001-01-01T00:00:00Z"
 }
+```
+
+```bash
+$ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
+--amount 100 \
+--receivers MIX... \
+--memo hahaha
 ```
 
 ### Transfer from a legacy multisig group
@@ -273,6 +283,9 @@ $ mixin-cli transfer cancel-request --request <multisig-request-id>
 ```
 
 ### Transfer from a Safe multisig group
+
+Safe transfers accept the same destination forms: receiver members plus
+`--threshold`, or one encoded `MIX...` address via `--receivers`.
 
 The first signer supplies the complete transfer. Later signers may pass only
 the trace because Safe requests are directly addressable by trace/request ID.

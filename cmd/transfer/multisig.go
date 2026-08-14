@@ -761,6 +761,9 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 
 			raw := opt.raw
 			if raw == "" {
+				if err := cmdutil.NormalizeMultisigDestination(&opt.input); err != nil {
+					return err
+				}
 				opt.input.Amount, _ = decimal.NewFromString(opt.amount)
 				if err := validateLegacyMultisigTransfer(opt.input, opt.senders, opt.senderThreshold); err != nil {
 					return err
@@ -825,7 +828,7 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 	cmd.Flags().StringVar(&opt.input.TraceID, "trace", "", "trace id")
 	cmd.Flags().StringVar(&opt.input.Memo, "memo", "", "memo")
 	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
-	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receiver members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
 	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members")
 	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")

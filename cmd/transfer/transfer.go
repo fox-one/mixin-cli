@@ -29,6 +29,9 @@ func NewCmdTransfer() *cobra.Command {
 			}
 
 			input := opt.input
+			if err := cmdutil.NormalizeMultisigDestination(&input); err != nil {
+				return err
+			}
 			input.Amount, _ = decimal.NewFromString(opt.amount)
 
 			if opt.isMultisigSource() {
@@ -132,7 +135,7 @@ func NewCmdTransfer() *cobra.Command {
 	cmd.Flags().StringVar(&opt.input.TraceID, "trace", "", "trace id")
 	cmd.Flags().StringVar(&opt.input.Memo, "memo", "", "memo")
 	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
-	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receiver members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
 	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members")
 	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")
