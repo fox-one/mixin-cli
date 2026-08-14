@@ -188,7 +188,7 @@ func listSafeOutputsDescending(ctx context.Context, client safeOutputClient, que
 
 		next := outputs[len(outputs)-1].Sequence + 1
 		if next <= query.Offset {
-			break
+			return nil, safePaginationStalledError(query.Offset)
 		}
 		query.Offset = next
 	}
@@ -235,21 +235,14 @@ func listLegacyOutputs(ctx context.Context, client legacyOutputClient, opt listO
 	if strings.EqualFold(opt.order, "DESC") {
 		return listLegacyOutputsDescending(ctx, client, query, offset, assetID, opt.limit)
 	}
-	if assetID != "" {
-		return listLegacyOutputsAscending(ctx, client, query, assetID, opt.limit)
+	var after *time.Time
+	if opt.offset != "" {
+		after = &offset
 	}
-
-	outputs, err := client.ListMultisigOutputs(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	if outputs == nil {
-		outputs = []*mixin.MultisigUTXO{}
-	}
-	return outputs, nil
+	return listLegacyOutputsAscending(ctx, client, query, assetID, opt.limit, after)
 }
 
-func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, query mixin.ListMultisigOutputsOption, assetID string, limit int) ([]*mixin.MultisigUTXO, error) {
+func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, query mixin.ListMultisigOutputsOption, assetID string, limit int, after *time.Time) ([]*mixin.MultisigUTXO, error) {
 	const pageLimit = 500
 	query.Limit = pageLimit
 
@@ -267,14 +260,18 @@ func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, 
 		pageSize := len(outputs)
 		next := outputs[len(outputs)-1].CreatedAt
 		for _, output := range outputs {
+			if after != nil && !output.CreatedAt.After(*after) {
+				continue
+			}
 			if isDuplicateLegacyOutput(seen, output) {
 				continue
 			}
-			if output.AssetID == assetID {
-				result = append(result, output)
-				if len(result) == limit {
-					break
-				}
+			if assetID != "" && output.AssetID != assetID {
+				continue
+			}
+			result = append(result, output)
+			if len(result) == limit {
+				break
 			}
 		}
 		if pageSize < pageLimit {
@@ -350,6 +347,10 @@ func isDuplicateLegacyOutput(seen map[string]struct{}, output *mixin.MultisigUTX
 
 func legacyPaginationStalledError(offset time.Time) error {
 	return fmt.Errorf("legacy output pagination stalled at %s", offset.UTC().Format(time.RFC3339Nano))
+}
+
+func safePaginationStalledError(offset uint64) error {
+	return fmt.Errorf("safe output pagination stalled at sequence %d", offset)
 }
 
 func reverseLegacyOutputs(outputs []*mixin.MultisigUTXO) {

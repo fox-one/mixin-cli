@@ -3,6 +3,7 @@ package safe
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
 )
@@ -28,13 +29,15 @@ func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset st
 		}
 
 		result = append(result, items...)
-		if len(items) > 0 {
-			offset = items[len(items)-1].Sequence + 1
-		}
-
 		if len(items) < LIMIT {
 			return result, nil
 		}
+
+		next := items[len(items)-1].Sequence + 1
+		if next <= offset {
+			return nil, fmt.Errorf("safe output pagination stalled at sequence %d", offset)
+		}
+		offset = next
 	}
 }
 
@@ -63,13 +66,15 @@ func listUnspentOutputs(ctx context.Context, client safeUtxoLister, members []st
 		for _, item := range items {
 			result[item.AssetID] = append(result[item.AssetID], item)
 		}
-		if len(items) > 0 {
-			offset = items[len(items)-1].Sequence + 1
-		}
-
 		if len(items) < LIMIT {
 			return result, nil
 		}
+
+		next := items[len(items)-1].Sequence + 1
+		if next <= offset {
+			return nil, fmt.Errorf("safe output pagination stalled at sequence %d", offset)
+		}
+		offset = next
 	}
 }
 

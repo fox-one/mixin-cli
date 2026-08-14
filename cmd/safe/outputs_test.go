@@ -2,6 +2,8 @@ package safe
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
@@ -11,6 +13,19 @@ import (
 type fakeSafeUtxoLister struct {
 	calls   []mixin.SafeListUtxoOption
 	outputs [][]*mixin.SafeUtxo
+}
+
+type stalledSafeUtxoLister struct {
+	calls int
+	page  []*mixin.SafeUtxo
+}
+
+func (f *stalledSafeUtxoLister) SafeListUtxos(context.Context, mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error) {
+	f.calls++
+	if f.calls > 2 {
+		return nil, errors.New("unexpected third request")
+	}
+	return f.page, nil
 }
 
 func (f *fakeSafeUtxoLister) SafeListUtxos(_ context.Context, opt mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error) {
@@ -59,6 +74,22 @@ func TestListUnspentOutputsForSafeMultisig(t *testing.T) {
 	}
 	if got := lister.calls[1].Offset; got != 266 {
 		t.Fatalf("second page offset = %d, want 266", got)
+	}
+}
+
+func TestListUnspentOutputsRejectsStalledCursor(t *testing.T) {
+	page := make([]*mixin.SafeUtxo, 256)
+	for i := range page {
+		page[i] = &mixin.SafeUtxo{AssetID: "asset-a", Sequence: uint64(i + 1)}
+	}
+	lister := &stalledSafeUtxoLister{page: page}
+
+	_, err := listUnspentOutputs(context.Background(), lister, []string{"member-a"}, 1)
+	if err == nil || !strings.Contains(err.Error(), "pagination stalled") {
+		t.Fatalf("error = %v, want pagination stalled", err)
+	}
+	if lister.calls != 2 {
+		t.Fatalf("call count = %d, want 2", lister.calls)
 	}
 }
 

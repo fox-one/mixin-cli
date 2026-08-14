@@ -109,6 +109,22 @@ func TestListSafeOutputsDescendingExcludesOffset(t *testing.T) {
 	}
 }
 
+func TestListSafeOutputsDescendingRejectsStalledCursor(t *testing.T) {
+	page := make([]*mixin.SafeUtxo, 500)
+	for i := range page {
+		page[i] = &mixin.SafeUtxo{Sequence: uint64(i + 1)}
+	}
+	client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{page, page}}
+
+	_, err := listSafeOutputs(context.Background(), client, listOptions{
+		limit: 1,
+		order: "DESC",
+	})
+	if err == nil || !strings.Contains(err.Error(), "pagination stalled") {
+		t.Fatalf("error = %v, want pagination stalled", err)
+	}
+}
+
 type fakeLegacyOutputLister struct {
 	calls    []mixin.ListMultisigOutputsOption
 	pages    [][]*mixin.MultisigUTXO
@@ -197,6 +213,33 @@ func TestListLegacyOutputsAscendingFillsAssetLimit(t *testing.T) {
 	}
 	if !outputs[0].CreatedAt.Before(outputs[1].CreatedAt) {
 		t.Fatalf("outputs are not ascending: %s >= %s", outputs[0].CreatedAt, outputs[1].CreatedAt)
+	}
+}
+
+func TestListLegacyOutputsAscendingExcludesOffset(t *testing.T) {
+	createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	page := []*mixin.MultisigUTXO{
+		{UTXOID: "boundary", AssetID: "asset-a", CreatedAt: createdAt},
+		{UTXOID: "next", AssetID: "asset-a", CreatedAt: createdAt.Add(time.Second)},
+	}
+
+	for _, assetID := range []string{"", "asset-a"} {
+		t.Run("asset="+assetID, func(t *testing.T) {
+			client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{page}}
+			outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
+				legacy: true,
+				asset:  assetID,
+				offset: createdAt.Format(time.RFC3339Nano),
+				limit:  1,
+				order:  "ASC",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(outputs) != 1 || outputs[0].UTXOID != "next" {
+				t.Fatalf("outputs = %+v, want only next output", outputs)
+			}
+		})
 	}
 }
 
