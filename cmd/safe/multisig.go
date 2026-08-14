@@ -1,6 +1,7 @@
 package safe
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,10 @@ const safeTransactionInputLimit = 256
 type safeMultisigRequestDetails struct {
 	mixin.SafeMultisigRequest
 	Receivers []*mixin.SafeTransactionReceiver `json:"receivers,omitempty"`
+}
+
+type safeMultisigSigner interface {
+	SafeSignMultisigRequest(context.Context, *mixin.SafeTransactionRequestInput) (*mixin.SafeMultisigRequest, error)
 }
 
 func readSafeMultisigRequest(ctx context.Context, client *mixin.Client, idOrHash string) (*safeMultisigRequestDetails, error) {
@@ -97,10 +102,10 @@ func createSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input 
 	if err != nil {
 		return fmt.Errorf("read spend key failed: %w", err)
 	}
-	_, createErr := client.SafeCreateMultisigRequest(ctx, &mixin.SafeTransactionRequestInput{
+	_, createErr := client.SafeCreateMultisigRequests(ctx, []*mixin.SafeTransactionRequestInput{{
 		RequestID:      input.TraceID,
 		RawTransaction: raw,
-	})
+	}})
 	// Always read the canonical request back. This validates receiver details that
 	// the SDK create response omits and makes concurrent creators converge by trace.
 	details, readErr := readSafeMultisigRequest(ctx, client, input.TraceID)
@@ -117,11 +122,14 @@ func createSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input 
 	if err := validateSafeMultisigRequest(request, input, opt.senders, opt.senderThreshold); err != nil {
 		return fmt.Errorf("validate safe multisig request failed: %w", err)
 	}
-	request, err = signSafeMultisigRequest(ctx, client, request, spend)
+	if err := validateSafeRequestRaw(request.RawTransaction, raw); err != nil {
+		return fmt.Errorf("safe multisig trace conflict: %w", err)
+	}
+	request, err = signSafeMultisigRequest(ctx, client, client.ClientID, request, spend)
 	if err != nil {
 		return err
 	}
-	printSafeJSON(cmd, request)
+	printSafeMultisigRequest(cmd, request)
 	cmd.Printf("signatures: %d/%d\n", len(request.Signers), request.SendersThreshold)
 	if request.TransactionHash != "" {
 		cmd.Println("transaction hash:", request.TransactionHash)
@@ -146,18 +154,18 @@ func continueSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, deta
 		return err
 	}
 	cmd.Printf("Continue safe multisig transfer %s %s (%d/%d signatures)\n", request.Amount, request.AssetID, len(request.Signers), request.SendersThreshold)
-	printSafeJSON(cmd, details)
+	printSafeMultisigDetails(cmd, details)
 	printSafeJSON(cmd, tx)
 	cmd.Println("raw transaction:", request.RawTransaction)
 
 	if containsSafeMember(request.Signers, client.ClientID) {
 		cmd.Println("signature already exists for current user")
-		printSafeJSON(cmd, request)
+		printSafeMultisigRequest(cmd, request)
 		return nil
 	}
 	if len(request.Signers) >= int(request.SendersThreshold) {
 		cmd.Println("transaction already completed")
-		printSafeJSON(cmd, request)
+		printSafeMultisigRequest(cmd, request)
 		return nil
 	}
 	if !opt.yes && !conformContinue() {
@@ -168,11 +176,11 @@ func continueSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, deta
 	if err != nil {
 		return fmt.Errorf("read spend key failed: %w", err)
 	}
-	request, err = signSafeMultisigRequest(cmd.Context(), client, request, spend)
+	request, err = signSafeMultisigRequest(cmd.Context(), client, client.ClientID, request, spend)
 	if err != nil {
 		return err
 	}
-	printSafeJSON(cmd, request)
+	printSafeMultisigRequest(cmd, request)
 	cmd.Printf("signatures: %d/%d\n", len(request.Signers), request.SendersThreshold)
 	if request.TransactionHash != "" {
 		cmd.Println("transaction hash:", request.TransactionHash)
@@ -180,17 +188,23 @@ func continueSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, deta
 	return nil
 }
 
-func signSafeMultisigRequest(ctx context.Context, client *mixin.Client, request *mixin.SafeMultisigRequest, spend *mixinnet.Key) (*mixin.SafeMultisigRequest, error) {
+func signSafeMultisigRequest(ctx context.Context, client safeMultisigSigner, currentID string, request *mixin.SafeMultisigRequest, spend *mixinnet.Key) (*mixin.SafeMultisigRequest, error) {
+	if request == nil {
+		return nil, errors.New("invalid safe multisig request: empty request")
+	}
+	if spend == nil {
+		return nil, errors.New("safe multisig spend key is required")
+	}
 	if err := validateSafeMembers(request.Senders, request.SendersThreshold, "senders"); err != nil {
 		return nil, fmt.Errorf("invalid safe multisig request: %w", err)
 	}
-	if containsSafeMember(request.Signers, client.ClientID) {
+	if containsSafeMember(request.Signers, currentID) {
 		return request, nil
 	}
 	if len(request.Signers) >= int(request.SendersThreshold) {
 		return request, nil
 	}
-	index, err := safeSignerIndex(request.Senders, client.ClientID)
+	index, err := safeSignerIndex(request.Senders, currentID)
 	if err != nil {
 		return nil, err
 	}
@@ -219,14 +233,17 @@ func signSafeMultisigRequest(ctx context.Context, client *mixin.Client, request 
 	if err != nil {
 		return nil, fmt.Errorf("dump signed safe multisig transaction failed: %w", err)
 	}
-	request, err = client.SafeSignMultisigRequest(ctx, &mixin.SafeTransactionRequestInput{
+	signedRequest, err := client.SafeSignMultisigRequest(ctx, &mixin.SafeTransactionRequestInput{
 		RequestID:      request.RequestID,
 		RawTransaction: raw,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("submit safe multisig signature failed: %w", err)
 	}
-	return request, nil
+	if err := validateSafeSignedResponse(request, signedRequest, raw, currentID); err != nil {
+		return nil, fmt.Errorf("validate signed safe multisig request failed: %w", err)
+	}
+	return signedRequest, nil
 }
 
 func validateSafeMultisigTransfer(input mixin.TransferInput, senders []string, threshold uint8) error {
@@ -325,8 +342,14 @@ func selectSafeMultisigOutputs(outputs []*mixin.SafeUtxo, amount decimal.Decimal
 	balance := decimal.Zero
 	selected := make([]*mixin.SafeUtxo, 0, min(len(outputs), safeTransactionInputLimit))
 	for _, output := range outputs {
+		if output == nil {
+			return nil, errors.New("invalid safe source output: nil")
+		}
 		if output.State != "" && output.State != mixin.SafeUtxoStateUnspent {
 			continue
+		}
+		if !output.Amount.IsPositive() {
+			return nil, fmt.Errorf("invalid safe source output %s: non-positive amount", output.OutputID)
 		}
 		selected = append(selected, output)
 		balance = balance.Add(output.Amount)
@@ -341,6 +364,7 @@ func selectSafeMultisigOutputs(outputs []*mixin.SafeUtxo, amount decimal.Decimal
 }
 
 func validateSafeSourceOutputs(outputs []*mixin.SafeUtxo, senders []string, threshold uint8, asset mixinnet.Hash) error {
+	var sourceAddress string
 	for i, output := range outputs {
 		if output == nil {
 			return fmt.Errorf("invalid safe source output %d: nil", i)
@@ -351,17 +375,29 @@ func validateSafeSourceOutputs(outputs []*mixin.SafeUtxo, senders []string, thre
 		if !output.Amount.IsPositive() {
 			return fmt.Errorf("invalid safe source output %s: non-positive amount", output.OutputID)
 		}
+		if output.State != "" && output.State != mixin.SafeUtxoStateUnspent {
+			return fmt.Errorf("invalid safe source output %s: state %s", output.OutputID, output.State)
+		}
 		if output.ReceiversThreshold != threshold || !sameSafeMembers(output.Receivers, senders) {
 			return fmt.Errorf("invalid safe source output %s: multisig group mismatch", output.OutputID)
 		}
-		if _, err := mixin.NewMixAddress(output.Receivers, output.ReceiversThreshold); err != nil {
+		address, err := mixin.NewMixAddress(output.Receivers, output.ReceiversThreshold)
+		if err != nil {
 			return fmt.Errorf("invalid safe source output %s: %w", output.OutputID, err)
+		}
+		if sourceAddress == "" {
+			sourceAddress = address.String()
+		} else if sourceAddress != address.String() {
+			return fmt.Errorf("invalid safe source output %s: inconsistent member order", output.OutputID)
 		}
 	}
 	return nil
 }
 
 func validateSafeMultisigRequest(request *mixin.SafeMultisigRequest, input mixin.TransferInput, senders []string, threshold uint8) error {
+	if request == nil {
+		return errors.New("empty safe multisig request")
+	}
 	if request.RequestID != input.TraceID {
 		return fmt.Errorf("trace mismatch: expected %s, got %s", input.TraceID, request.RequestID)
 	}
@@ -455,6 +491,9 @@ func validateSafeRequestSigners(request *mixin.SafeMultisigRequest) error {
 }
 
 func validateSafeRequestTransaction(request *mixin.SafeMultisigRequest, tx *mixinnet.Transaction) error {
+	if request == nil {
+		return errors.New("invalid safe multisig request: empty request")
+	}
 	if tx == nil || len(tx.Inputs) == 0 || len(tx.Outputs) == 0 {
 		return errors.New("invalid safe multisig transaction: inputs and outputs are required")
 	}
@@ -478,6 +517,69 @@ func validateSafeRequestTransaction(request *mixin.SafeMultisigRequest, tx *mixi
 		}
 	}
 	return nil
+}
+
+func validateSafeRequestRaw(candidateRaw, confirmedRaw string) error {
+	candidate, err := mixinnet.TransactionFromRaw(candidateRaw)
+	if err != nil {
+		return fmt.Errorf("parse request raw transaction failed: %w", err)
+	}
+	confirmed, err := mixinnet.TransactionFromRaw(confirmedRaw)
+	if err != nil {
+		return fmt.Errorf("parse confirmed raw transaction failed: %w", err)
+	}
+	candidatePayload, err := candidate.DumpPayload()
+	if err != nil {
+		return fmt.Errorf("dump request transaction payload failed: %w", err)
+	}
+	confirmedPayload, err := confirmed.DumpPayload()
+	if err != nil {
+		return fmt.Errorf("dump confirmed transaction payload failed: %w", err)
+	}
+	if !bytes.Equal(candidatePayload, confirmedPayload) {
+		return errors.New("raw transaction payload does not match the confirmed transfer")
+	}
+	return nil
+}
+
+func validateSafeSignedResponse(previous, signed *mixin.SafeMultisigRequest, submittedRaw, currentID string) error {
+	if signed == nil {
+		return errors.New("empty safe multisig request")
+	}
+	if signed.RequestID != previous.RequestID {
+		return fmt.Errorf("request id mismatch: expected %s, got %s", previous.RequestID, signed.RequestID)
+	}
+	if signed.AssetID != previous.AssetID || signed.KernelAssetID != previous.KernelAssetID || !signed.Amount.Equal(previous.Amount) || signed.Extra != previous.Extra {
+		return errors.New("signed safe multisig transfer fields changed")
+	}
+	if signed.SendersThreshold != previous.SendersThreshold || !sameSafeMembers(signed.Senders, previous.Senders) {
+		return errors.New("signed safe multisig source changed")
+	}
+	if err := validateSafeMembers(signed.Senders, signed.SendersThreshold, "senders"); err != nil {
+		return fmt.Errorf("invalid signed safe multisig request: %w", err)
+	}
+	if err := validateSafeRequestSigners(signed); err != nil {
+		return err
+	}
+	for _, signer := range previous.Signers {
+		if !containsSafeMember(signed.Signers, signer) {
+			return fmt.Errorf("existing safe multisig signer %s disappeared", signer)
+		}
+	}
+	if !containsSafeMember(signed.Signers, currentID) {
+		return errors.New("signed safe multisig response is missing the current signer")
+	}
+	if signed.RawTransaction == "" {
+		return errors.New("signed safe multisig request has no raw transaction")
+	}
+	if err := validateSafeRequestRaw(signed.RawTransaction, submittedRaw); err != nil {
+		return err
+	}
+	tx, err := mixinnet.TransactionFromRaw(signed.RawTransaction)
+	if err != nil {
+		return fmt.Errorf("parse signed safe multisig transaction failed: %w", err)
+	}
+	return validateSafeRequestTransaction(signed, tx)
 }
 
 func safeSignerIndex(members []string, clientID string) (uint16, error) {
@@ -527,6 +629,26 @@ func printSafeJSON(cmd *cobra.Command, value interface{}) {
 	cmd.Println(string(data))
 }
 
+func printSafeMultisigRequest(cmd *cobra.Command, request *mixin.SafeMultisigRequest) {
+	if request == nil {
+		printSafeJSON(cmd, nil)
+		return
+	}
+	redacted := *request
+	redacted.Views = nil
+	printSafeJSON(cmd, &redacted)
+}
+
+func printSafeMultisigDetails(cmd *cobra.Command, details *safeMultisigRequestDetails) {
+	if details == nil {
+		printSafeJSON(cmd, nil)
+		return
+	}
+	redacted := *details
+	redacted.SafeMultisigRequest.Views = nil
+	printSafeJSON(cmd, &redacted)
+}
+
 func newCmdCancelSafeMultisigSignature() *cobra.Command {
 	var trace string
 	var yes bool
@@ -567,7 +689,7 @@ func newCmdCancelSafeMultisigSignature() *cobra.Command {
 			if len(request.Signers) >= int(request.SendersThreshold) {
 				return errors.New("cannot cancel a completed multisig transfer")
 			}
-			printSafeJSON(cmd, details)
+			printSafeMultisigDetails(cmd, details)
 			if !yes && !conformContinue() {
 				return nil
 			}
@@ -575,7 +697,7 @@ func newCmdCancelSafeMultisigSignature() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("cancel safe multisig signature failed: %w", err)
 			}
-			printSafeJSON(cmd, request)
+			printSafeMultisigRequest(cmd, request)
 			return nil
 		},
 	}

@@ -1,7 +1,11 @@
 package safe
 
 import (
+	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
@@ -45,6 +49,12 @@ func TestSelectSafeMultisigOutputsAcceptsExactBalance(t *testing.T) {
 	}
 }
 
+func TestSelectSafeMultisigOutputsRejectsNilOutput(t *testing.T) {
+	if _, err := selectSafeMultisigOutputs([]*mixin.SafeUtxo{nil}, decimal.NewFromInt(1)); err == nil {
+		t.Fatal("expected nil output error")
+	}
+}
+
 func TestSelectSafeMultisigOutputsSkipsNonUnspent(t *testing.T) {
 	outputs := []*mixin.SafeUtxo{
 		{Amount: decimal.NewFromInt(10), State: mixin.SafeUtxoStateSigned},
@@ -66,6 +76,33 @@ func TestValidateSafeSourceOutputsRejectsWrongGroup(t *testing.T) {
 	}}
 	if err := validateSafeSourceOutputs(outputs, []string{"00000000-0000-0000-0000-000000000002"}, 1, asset); err == nil {
 		t.Fatal("expected source group mismatch")
+	}
+}
+
+func TestValidateSafeSourceOutputsRejectsInconsistentMemberOrder(t *testing.T) {
+	asset := mixinnet.NewHash([]byte("asset"))
+	members := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	outputs := []*mixin.SafeUtxo{
+		{
+			OutputID:           "first",
+			KernelAssetID:      asset,
+			Amount:             decimal.NewFromInt(1),
+			Receivers:          []string{members[0], members[1]},
+			ReceiversThreshold: 2,
+		},
+		{
+			OutputID:           "second",
+			KernelAssetID:      asset,
+			Amount:             decimal.NewFromInt(1),
+			Receivers:          []string{members[1], members[0]},
+			ReceiversThreshold: 2,
+		},
+	}
+	if err := validateSafeSourceOutputs(outputs, members, 2, asset); err == nil {
+		t.Fatal("expected inconsistent source address error")
 	}
 }
 
@@ -122,6 +159,28 @@ func TestSafeMultisigRequestDetailsUnmarshalReceivers(t *testing.T) {
 	}
 }
 
+func TestPrintSafeMultisigDetailsRedactsViews(t *testing.T) {
+	var view mixinnet.Key
+	view[0] = 1
+	details := &safeMultisigRequestDetails{
+		SafeMultisigRequest: mixin.SafeMultisigRequest{
+			RequestID: "trace",
+			Views:     []mixinnet.Key{view},
+		},
+		Receivers: []*mixin.SafeTransactionReceiver{{Members: []string{"receiver"}, Threshold: 1}},
+	}
+	var output bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&output)
+	printSafeMultisigDetails(cmd, details)
+	if strings.Contains(output.String(), "\"views\"") {
+		t.Fatalf("sensitive views leaked in output: %s", output.String())
+	}
+	if !strings.Contains(output.String(), "\"request_id\": \"trace\"") || !strings.Contains(output.String(), "\"receivers\"") {
+		t.Fatalf("safe request summary lost public fields: %s", output.String())
+	}
+}
+
 func TestValidateSafeRequestRejectsUnknownSigner(t *testing.T) {
 	request := &mixin.SafeMultisigRequest{
 		Senders: []string{"a", "b"},
@@ -157,6 +216,81 @@ func TestValidateSafeRequestTransaction(t *testing.T) {
 	}
 }
 
+func TestSignSafeMultisigRequestUsesCanonicalSignerIndex(t *testing.T) {
+	asset := mixinnet.NewHash([]byte("asset"))
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersion,
+		Asset:   asset,
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := mixinnet.GenerateKey(rand.Reader)
+	spend := mixinnet.GenerateKey(rand.Reader)
+	request := &mixin.SafeMultisigRequest{
+		RequestID:        "trace",
+		KernelAssetID:    asset,
+		Amount:           decimal.NewFromInt(1),
+		Senders:          []string{"b", "a"},
+		SendersThreshold: 2,
+		RawTransaction:   raw,
+		Views:            []mixinnet.Key{view},
+	}
+	response := *request
+	response.Signers = []string{"b"}
+	client := &fakeSafeMultisigSigner{response: &response}
+	if _, err := signSafeMultisigRequest(context.Background(), client, "b", request, &spend); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := mixinnet.TransactionFromRaw(client.raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signed.Signatures) != 1 || signed.Signatures[0][1] == nil {
+		t.Fatalf("expected signer b at canonical index 1, got %#v", signed.Signatures)
+	}
+}
+
+func TestValidateSafeRequestRawBindsConfirmedPayload(t *testing.T) {
+	asset := mixinnet.NewHash([]byte("asset"))
+	inputHash := mixinnet.NewHash([]byte("input"))
+	confirmed := &mixinnet.Transaction{
+		Version: mixinnet.TxVersion,
+		Asset:   asset,
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+		Extra:   []byte("confirmed"),
+	}
+	confirmedRaw, err := confirmed.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signed := *confirmed
+	signed.Signatures = []map[uint16]*mixinnet.Signature{{}}
+	signedRaw, err := signed.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSafeRequestRaw(signedRaw, confirmedRaw); err != nil {
+		t.Fatalf("signed form of the confirmed payload must match: %v", err)
+	}
+
+	conflict := *confirmed
+	conflict.Extra = []byte("different")
+	conflictRaw, err := conflict.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSafeRequestRaw(conflictRaw, confirmedRaw); err == nil {
+		t.Fatal("expected raw payload mismatch")
+	}
+}
+
 func TestSafeTransferRegistersSignatureCancellation(t *testing.T) {
 	cmd := NewCmdTransfer()
 	cancel, _, err := cmd.Find([]string{"cancel"})
@@ -166,4 +300,14 @@ func TestSafeTransferRegistersSignatureCancellation(t *testing.T) {
 	if cancel == nil || cancel.Name() != "cancel" {
 		t.Fatal("safe transfer cancel command is not registered")
 	}
+}
+
+type fakeSafeMultisigSigner struct {
+	response *mixin.SafeMultisigRequest
+	raw      string
+}
+
+func (f *fakeSafeMultisigSigner) SafeSignMultisigRequest(_ context.Context, input *mixin.SafeTransactionRequestInput) (*mixin.SafeMultisigRequest, error) {
+	f.raw = input.RawTransaction
+	return f.response, nil
 }

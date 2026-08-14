@@ -85,6 +85,15 @@ func NewCmdTransfer() *cobra.Command {
 				}
 				balance := decimal.Zero
 				for i, utxo := range outputs {
+					if utxo == nil {
+						return errors.New("invalid safe output response: nil output")
+					}
+					if utxo.State != "" && utxo.State != mixin.SafeUtxoStateUnspent {
+						return fmt.Errorf("invalid safe output %s: state %s", utxo.OutputID, utxo.State)
+					}
+					if !utxo.Amount.IsPositive() {
+						return fmt.Errorf("invalid safe output %s: non-positive amount", utxo.OutputID)
+					}
 					if balance = balance.Add(utxo.Amount); !balance.LessThan(input.Amount) {
 						outputs = outputs[:i+1]
 						break
@@ -152,13 +161,17 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("read spend key failed: %w", err)
 			}
 
-			request, err := client.SafeCreateTransactionRequest(ctx, &mixin.SafeTransactionRequestInput{
+			requests, err := client.SafeCreateTransactionRequests(ctx, []*mixin.SafeTransactionRequestInput{{
 				RequestID:      input.TraceID,
 				RawTransaction: raw,
-			})
+			}})
 			if err != nil {
 				return fmt.Errorf("create transaction request failed: %w", err)
 			}
+			if len(requests) != 1 || requests[0] == nil {
+				return fmt.Errorf("create transaction request returned %d valid requests, want 1", len(requests))
+			}
+			request := requests[0]
 			if len(request.Views) != len(tx.Inputs) {
 				return fmt.Errorf("invalid transaction views: got %d for %d inputs", len(request.Views), len(tx.Inputs))
 			}
@@ -178,13 +191,17 @@ func NewCmdTransfer() *cobra.Command {
 
 			cmd.Println("signed transaction:", raw)
 
-			request, err = client.SafeSubmitTransactionRequest(ctx, &mixin.SafeTransactionRequestInput{
+			requests, err = client.SafeSubmitTransactionRequests(ctx, []*mixin.SafeTransactionRequestInput{{
 				RequestID:      input.TraceID,
 				RawTransaction: raw,
-			})
+			}})
 			if err != nil {
 				return fmt.Errorf("submit transaction request failed: %w", err)
 			}
+			if len(requests) != 1 || requests[0] == nil {
+				return fmt.Errorf("submit transaction request returned %d valid requests, want 1", len(requests))
+			}
+			request = requests[0]
 
 			cmd.Println("transaction hash:", request.TransactionHash)
 			return nil
