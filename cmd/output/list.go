@@ -82,7 +82,7 @@ func NewCmdList() *cobra.Command {
 	cmd.Flags().StringVar(&opt.asset, "asset", "", "asset id or kernel asset id")
 	cmd.Flags().StringVar(&opt.state, "state", "", "output state: unspent, signed, or spent")
 	cmd.Flags().StringVar(&opt.offset, "offset", "", "safe sequence or legacy RFC3339 timestamp; exclusive upper bound for DESC")
-	cmd.Flags().IntVar(&opt.limit, "limit", 100, "number of outputs to return")
+	cmd.Flags().IntVar(&opt.limit, "limit", 0, "target number of outputs to return; 0 returns all")
 	cmd.Flags().StringVar(&opt.order, "order", "ASC", "output order: ASC or DESC; DESC scans matching history client-side")
 	return cmd
 }
@@ -96,8 +96,8 @@ func validateListOptions(opt listOptions) error {
 		return errors.New("threshold must be in range [1, receivers count]")
 	}
 
-	if opt.limit < 1 || opt.limit > 500 {
-		return errors.New("limit must be in range [1, 500]")
+	if opt.limit < 0 {
+		return errors.New("limit must not be negative")
 	}
 
 	switch opt.state {
@@ -146,22 +146,55 @@ func listSafeOutputs(ctx context.Context, client safeOutputClient, opt listOptio
 		State:     mixin.SafeUtxoState(opt.state),
 	}
 	if strings.EqualFold(opt.order, "ASC") {
-		outputs, err := client.SafeListUtxos(ctx, query)
-		if outputs == nil {
-			outputs = []*mixin.SafeUtxo{}
-		}
-		return outputs, err
+		return listSafeOutputsAscending(ctx, client, query, opt.limit)
 	}
 
-	return listSafeOutputsDescending(ctx, client, query, offset, opt.limit)
+	var before *uint64
+	if opt.offset != "" {
+		before = &offset
+	}
+	return listSafeOutputsDescending(ctx, client, query, before, opt.limit)
 }
 
-func listSafeOutputsDescending(ctx context.Context, client safeOutputClient, query mixin.SafeListUtxoOption, before uint64, limit int) ([]*mixin.SafeUtxo, error) {
+func listSafeOutputsAscending(ctx context.Context, client safeOutputClient, query mixin.SafeListUtxoOption, limit int) ([]*mixin.SafeUtxo, error) {
+	const pageLimit = 500
+	query.Limit = pageLimit
+
+	result := make([]*mixin.SafeUtxo, 0)
+	for {
+		outputs, err := client.SafeListUtxos(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		if len(outputs) == 0 {
+			break
+		}
+
+		for _, output := range outputs {
+			result = append(result, output)
+			if limit > 0 && len(result) == limit {
+				return result, nil
+			}
+		}
+		if len(outputs) < pageLimit {
+			break
+		}
+
+		next := outputs[len(outputs)-1].Sequence + 1
+		if next <= query.Offset {
+			return nil, safePaginationStalledError(query.Offset)
+		}
+		query.Offset = next
+	}
+	return result, nil
+}
+
+func listSafeOutputsDescending(ctx context.Context, client safeOutputClient, query mixin.SafeListUtxoOption, before *uint64, limit int) ([]*mixin.SafeUtxo, error) {
 	const pageLimit = 500
 	query.Offset = 0
 	query.Limit = pageLimit
 
-	result := make([]*mixin.SafeUtxo, 0, limit)
+	result := make([]*mixin.SafeUtxo, 0)
 	for {
 		outputs, err := client.SafeListUtxos(ctx, query)
 		if err != nil {
@@ -173,12 +206,12 @@ func listSafeOutputsDescending(ctx context.Context, client safeOutputClient, que
 
 		done := false
 		for _, output := range outputs {
-			if before > 0 && output.Sequence >= before {
+			if before != nil && output.Sequence >= *before {
 				done = true
 				break
 			}
 			result = append(result, output)
-			if len(result) > limit {
+			if limit > 0 && len(result) > limit {
 				result = result[len(result)-limit:]
 			}
 		}
@@ -232,23 +265,24 @@ func listLegacyOutputs(ctx context.Context, client legacyOutputClient, opt listO
 		OrderByCreated: true,
 		State:          opt.state,
 	}
-	if strings.EqualFold(opt.order, "DESC") {
-		return listLegacyOutputsDescending(ctx, client, query, offset, assetID, opt.limit)
-	}
-	var after *time.Time
+	var cursor *time.Time
 	if opt.offset != "" {
-		after = &offset
+		cursor = &offset
 	}
-	return listLegacyOutputsAscending(ctx, client, query, assetID, opt.limit, after)
+	if strings.EqualFold(opt.order, "DESC") {
+		return listLegacyOutputsDescending(ctx, client, query, cursor, assetID, opt.limit)
+	}
+	return listLegacyOutputsAscending(ctx, client, query, assetID, opt.limit, cursor)
 }
 
 func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, query mixin.ListMultisigOutputsOption, assetID string, limit int, after *time.Time) ([]*mixin.MultisigUTXO, error) {
 	const pageLimit = 500
 	query.Limit = pageLimit
 
-	result := make([]*mixin.MultisigUTXO, 0, limit)
+	result := make([]*mixin.MultisigUTXO, 0)
 	seen := map[string]struct{}{}
-	for len(result) < limit {
+	var cutoff *time.Time
+	for {
 		outputs, err := client.ListMultisigOutputs(ctx, query)
 		if err != nil {
 			return nil, err
@@ -259,9 +293,14 @@ func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, 
 
 		pageSize := len(outputs)
 		next := outputs[len(outputs)-1].CreatedAt
+		done := false
 		for _, output := range outputs {
 			if after != nil && !output.CreatedAt.After(*after) {
 				continue
+			}
+			if cutoff != nil && output.CreatedAt.After(*cutoff) {
+				done = true
+				break
 			}
 			if isDuplicateLegacyOutput(seen, output) {
 				continue
@@ -270,11 +309,12 @@ func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, 
 				continue
 			}
 			result = append(result, output)
-			if len(result) == limit {
-				break
+			if limit > 0 && len(result) == limit {
+				value := output.CreatedAt
+				cutoff = &value
 			}
 		}
-		if pageSize < pageLimit {
+		if done || pageSize < pageLimit {
 			break
 		}
 		if !next.After(query.Offset) {
@@ -285,12 +325,12 @@ func listLegacyOutputsAscending(ctx context.Context, client legacyOutputLister, 
 	return result, nil
 }
 
-func listLegacyOutputsDescending(ctx context.Context, client legacyOutputLister, query mixin.ListMultisigOutputsOption, before time.Time, assetID string, limit int) ([]*mixin.MultisigUTXO, error) {
+func listLegacyOutputsDescending(ctx context.Context, client legacyOutputLister, query mixin.ListMultisigOutputsOption, before *time.Time, assetID string, limit int) ([]*mixin.MultisigUTXO, error) {
 	const pageLimit = 500
 	query.Offset = time.Time{}
 	query.Limit = pageLimit
 
-	result := make([]*mixin.MultisigUTXO, 0, limit)
+	result := make([]*mixin.MultisigUTXO, 0)
 	seen := map[string]struct{}{}
 	for {
 		outputs, err := client.ListMultisigOutputs(ctx, query)
@@ -306,7 +346,7 @@ func listLegacyOutputsDescending(ctx context.Context, client legacyOutputLister,
 
 		done := false
 		for _, output := range outputs {
-			if !before.IsZero() && !output.CreatedAt.Before(before) {
+			if before != nil && !output.CreatedAt.Before(*before) {
 				done = true
 				break
 			}
@@ -317,9 +357,6 @@ func listLegacyOutputsDescending(ctx context.Context, client legacyOutputLister,
 				continue
 			}
 			result = append(result, output)
-			if len(result) > limit {
-				result = result[len(result)-limit:]
-			}
 		}
 		if done || pageSize < pageLimit {
 			break
@@ -330,6 +367,14 @@ func listLegacyOutputsDescending(ctx context.Context, client legacyOutputLister,
 		query.Offset = next
 	}
 
+	if limit > 0 && len(result) > limit {
+		start := len(result) - limit
+		cutoff := result[start].CreatedAt
+		for start > 0 && result[start-1].CreatedAt.Equal(cutoff) {
+			start--
+		}
+		result = result[start:]
+	}
 	reverseLegacyOutputs(result)
 	return result, nil
 }

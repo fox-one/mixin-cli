@@ -24,7 +24,8 @@ func TestValidateListOptions(t *testing.T) {
 		{name: "missing threshold", opt: listOptions{receivers: []string{"a"}, limit: 100, order: "DESC"}, wantErr: true},
 		{name: "threshold too large", opt: listOptions{receivers: []string{"a"}, threshold: 2, limit: 100, order: "DESC"}, wantErr: true},
 		{name: "invalid state", opt: listOptions{state: "unknown", limit: 100, order: "DESC"}, wantErr: true},
-		{name: "invalid limit", opt: listOptions{limit: 501, order: "DESC"}, wantErr: true},
+		{name: "negative limit", opt: listOptions{limit: -1, order: "DESC"}, wantErr: true},
+		{name: "limit above API page size", opt: listOptions{limit: 501, order: "DESC"}},
 		{name: "invalid order", opt: listOptions{limit: 100, order: "random"}, wantErr: true},
 		{name: "legacy ascending", opt: listOptions{legacy: true, limit: 100, order: "ASC"}},
 	}
@@ -81,6 +82,60 @@ func TestListSafeOutputsDescending(t *testing.T) {
 	}
 }
 
+func TestListSafeOutputsWithoutLimitReturnsAll(t *testing.T) {
+	firstPage := make([]*mixin.SafeUtxo, 500)
+	for i := range firstPage {
+		firstPage[i] = &mixin.SafeUtxo{Sequence: uint64(i + 1)}
+	}
+	secondPage := []*mixin.SafeUtxo{{Sequence: 501}, {Sequence: 502}}
+
+	for _, order := range []string{"ASC", "DESC"} {
+		t.Run(order, func(t *testing.T) {
+			client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{firstPage, secondPage}}
+			outputs, err := listSafeOutputs(context.Background(), client, listOptions{order: order})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(outputs) != 502 {
+				t.Fatalf("output count = %d, want 502", len(outputs))
+			}
+			if order == "ASC" && (outputs[0].Sequence != 1 || outputs[501].Sequence != 502) {
+				t.Fatalf("unexpected ASC bounds: %d..%d", outputs[0].Sequence, outputs[501].Sequence)
+			}
+			if order == "DESC" && (outputs[0].Sequence != 502 || outputs[501].Sequence != 1) {
+				t.Fatalf("unexpected DESC bounds: %d..%d", outputs[0].Sequence, outputs[501].Sequence)
+			}
+		})
+	}
+}
+
+func TestListSafeOutputsLimitCanExceedAPIPageSize(t *testing.T) {
+	firstPage := make([]*mixin.SafeUtxo, 500)
+	for i := range firstPage {
+		firstPage[i] = &mixin.SafeUtxo{Sequence: uint64(i + 1)}
+	}
+	secondPage := []*mixin.SafeUtxo{{Sequence: 501}, {Sequence: 502}}
+
+	for _, order := range []string{"ASC", "DESC"} {
+		t.Run(order, func(t *testing.T) {
+			client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{firstPage, secondPage}}
+			outputs, err := listSafeOutputs(context.Background(), client, listOptions{limit: 501, order: order})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(outputs) != 501 {
+				t.Fatalf("output count = %d, want 501", len(outputs))
+			}
+			if order == "ASC" && outputs[len(outputs)-1].Sequence != 501 {
+				t.Fatalf("ASC last sequence = %d, want 501", outputs[len(outputs)-1].Sequence)
+			}
+			if order == "DESC" && (outputs[0].Sequence != 502 || outputs[len(outputs)-1].Sequence != 2) {
+				t.Fatalf("unexpected DESC bounds: %d..%d", outputs[0].Sequence, outputs[len(outputs)-1].Sequence)
+			}
+		})
+	}
+}
+
 func TestListSafeOutputsDescendingExcludesOffset(t *testing.T) {
 	client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{{
 		{Sequence: 1},
@@ -109,6 +164,21 @@ func TestListSafeOutputsDescendingExcludesOffset(t *testing.T) {
 	}
 }
 
+func TestListSafeOutputsDescendingHonorsZeroOffset(t *testing.T) {
+	client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{{{Sequence: 1}}}}
+
+	outputs, err := listSafeOutputs(context.Background(), client, listOptions{
+		offset: "0",
+		order:  "DESC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != 0 {
+		t.Fatalf("output count = %d, want 0", len(outputs))
+	}
+}
+
 func TestListSafeOutputsDescendingRejectsStalledCursor(t *testing.T) {
 	page := make([]*mixin.SafeUtxo, 500)
 	for i := range page {
@@ -120,6 +190,19 @@ func TestListSafeOutputsDescendingRejectsStalledCursor(t *testing.T) {
 		limit: 1,
 		order: "DESC",
 	})
+	if err == nil || !strings.Contains(err.Error(), "pagination stalled") {
+		t.Fatalf("error = %v, want pagination stalled", err)
+	}
+}
+
+func TestListSafeOutputsAscendingRejectsStalledCursor(t *testing.T) {
+	page := make([]*mixin.SafeUtxo, 500)
+	for i := range page {
+		page[i] = &mixin.SafeUtxo{Sequence: uint64(i + 1)}
+	}
+	client := &fakeSafeOutputClient{pages: [][]*mixin.SafeUtxo{page, page}}
+
+	_, err := listSafeOutputs(context.Background(), client, listOptions{order: "ASC"})
 	if err == nil || !strings.Contains(err.Error(), "pagination stalled") {
 		t.Fatalf("error = %v, want pagination stalled", err)
 	}
@@ -243,6 +326,103 @@ func TestListLegacyOutputsAscendingExcludesOffset(t *testing.T) {
 	}
 }
 
+func TestListLegacyOutputsWithoutLimitReturnsAll(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	page := []*mixin.MultisigUTXO{
+		{UTXOID: "first", CreatedAt: start},
+		{UTXOID: "second", CreatedAt: start.Add(time.Second)},
+	}
+	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{page}}
+
+	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{legacy: true, order: "ASC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != len(page) {
+		t.Fatalf("output count = %d, want %d", len(outputs), len(page))
+	}
+}
+
+func TestListLegacyOutputsDoesNotSplitCreatedAtGroup(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		page []*mixin.MultisigUTXO
+		want []string
+	}{
+		{
+			name: "ASC",
+			page: []*mixin.MultisigUTXO{
+				{UTXOID: "a", CreatedAt: start},
+				{UTXOID: "b", CreatedAt: start},
+				{UTXOID: "newer", CreatedAt: start.Add(time.Second)},
+			},
+			want: []string{"a", "b"},
+		},
+		{
+			name: "DESC",
+			page: []*mixin.MultisigUTXO{
+				{UTXOID: "older", CreatedAt: start},
+				{UTXOID: "a", CreatedAt: start.Add(time.Second)},
+				{UTXOID: "b", CreatedAt: start.Add(time.Second)},
+			},
+			want: []string{"b", "a"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{tt.page}}
+			outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
+				legacy: true,
+				limit:  1,
+				order:  tt.name,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(outputs) != len(tt.want) {
+				t.Fatalf("output count = %d, want %d", len(outputs), len(tt.want))
+			}
+			for i, output := range outputs {
+				if output.UTXOID != tt.want[i] {
+					t.Fatalf("output[%d] = %s, want %s", i, output.UTXOID, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestListLegacyOutputsKeepsCreatedAtGroupAcrossAPIPages(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	firstPage := make([]*mixin.MultisigUTXO, 500)
+	for i := range firstPage {
+		firstPage[i] = &mixin.MultisigUTXO{
+			UTXOID:    fmt.Sprintf("utxo-%d", i),
+			CreatedAt: start.Add(time.Duration(i) * time.Second),
+		}
+	}
+	boundary := firstPage[len(firstPage)-1].CreatedAt
+	secondPage := []*mixin.MultisigUTXO{
+		firstPage[len(firstPage)-1],
+		{UTXOID: "same-time", CreatedAt: boundary},
+		{UTXOID: "newer", CreatedAt: boundary.Add(time.Second)},
+	}
+	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{firstPage, secondPage}}
+
+	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
+		legacy: true,
+		limit:  500,
+		order:  "ASC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != 501 || outputs[len(outputs)-1].UTXOID != "same-time" {
+		t.Fatalf("unexpected boundary group: count=%d last=%s", len(outputs), outputs[len(outputs)-1].UTXOID)
+	}
+}
+
 func TestListLegacyOutputsResolvesKernelAssetID(t *testing.T) {
 	kernelAssetID := strings.Repeat("a", 64)
 	client := &fakeLegacyOutputLister{
@@ -327,6 +507,9 @@ func TestNewCmdListFlags(t *testing.T) {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Fatalf("missing --%s flag", name)
 		}
+	}
+	if got := cmd.Flags().Lookup("limit").DefValue; got != "0" {
+		t.Fatalf("default limit = %q, want 0", got)
 	}
 	if got := cmd.Flags().Lookup("order").DefValue; got != "ASC" {
 		t.Fatalf("default order = %q, want ASC", got)

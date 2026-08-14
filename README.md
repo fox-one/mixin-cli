@@ -88,7 +88,9 @@ the matching output history client-side because the output APIs do not reliably 
 descending pagination. For Safe outputs, `--offset` is a sequence; for legacy outputs it
 is an RFC3339 timestamp. In descending order, the offset is an exclusive upper bound.
 Use `--state` with `unspent`, `signed`, or `spent`; `--asset` accepts either an asset UUID
-or a kernel asset ID.
+or a kernel asset ID. Without `--limit`, all matching outputs are returned. A positive
+limit caps Safe results exactly; legacy results can exceed the target when multiple outputs
+share the boundary timestamp so that the next page cannot silently skip tied records.
 
 List legacy multisig outputs:
 
