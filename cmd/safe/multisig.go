@@ -28,6 +28,10 @@ type safeMultisigSigner interface {
 	SafeSignMultisigRequest(context.Context, *mixin.SafeTransactionRequestInput) (*mixin.SafeMultisigRequest, error)
 }
 
+type safeUtxoLister interface {
+	SafeListUtxos(context.Context, mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error)
+}
+
 func readSafeMultisigRequest(ctx context.Context, client *mixin.Client, idOrHash string) (*safeMultisigRequestDetails, error) {
 	var request safeMultisigRequestDetails
 	if err := client.Get(ctx, "/safe/multisigs/"+idOrHash, nil, &request); err != nil {
@@ -57,14 +61,7 @@ func createSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input 
 	if err != nil {
 		return err
 	}
-	outputs, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
-		Members:   append([]string(nil), opt.senders...),
-		Threshold: opt.senderThreshold,
-		State:     mixin.SafeUtxoStateUnspent,
-		Asset:     asset.KernelAssetID,
-		Limit:     safeTransactionInputLimit,
-		Order:     "ASC",
-	})
+	outputs, err := listSafeMultisigOutputs(ctx, client, opt.senders, opt.senderThreshold, asset.KernelAssetID)
 	if err != nil {
 		return fmt.Errorf("list unspent multisig outputs failed: %w", err)
 	}
@@ -342,8 +339,7 @@ func safeTransferReceiver(ctx context.Context, client *mixin.Client, input mixin
 }
 
 func selectSafeMultisigOutputs(outputs []*mixin.SafeUtxo, amount decimal.Decimal) ([]*mixin.SafeUtxo, error) {
-	balance := decimal.Zero
-	selected := make([]*mixin.SafeUtxo, 0, min(len(outputs), safeTransactionInputLimit))
+	candidates := make([]*mixin.SafeUtxo, 0, len(outputs))
 	for _, output := range outputs {
 		if output == nil {
 			return nil, errors.New("invalid safe source output: nil")
@@ -354,16 +350,60 @@ func selectSafeMultisigOutputs(outputs []*mixin.SafeUtxo, amount decimal.Decimal
 		if !output.Amount.IsPositive() {
 			return nil, fmt.Errorf("invalid safe source output %s: non-positive amount", output.OutputID)
 		}
-		selected = append(selected, output)
+		candidates = append(candidates, output)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Amount.Equal(candidates[j].Amount) {
+			return candidates[i].OutputID < candidates[j].OutputID
+		}
+		return candidates[i].Amount.GreaterThan(candidates[j].Amount)
+	})
+	if len(candidates) > safeTransactionInputLimit {
+		candidates = candidates[:safeTransactionInputLimit]
+	}
+	balance := decimal.Zero
+	for i, output := range candidates {
 		balance = balance.Add(output.Amount)
 		if !balance.LessThan(amount) {
-			return selected, nil
-		}
-		if len(selected) == safeTransactionInputLimit {
-			return nil, fmt.Errorf("insufficient balance in first %d outputs; merge outputs before retrying", safeTransactionInputLimit)
+			return candidates[:i+1], nil
 		}
 	}
-	return nil, fmt.Errorf("insufficient safe multisig balance: available %s, required %s", balance, amount)
+	return nil, fmt.Errorf("insufficient safe multisig balance within %d inputs: available %s, required %s", safeTransactionInputLimit, balance, amount)
+}
+
+func listSafeMultisigOutputs(ctx context.Context, client safeUtxoLister, members []string, threshold uint8, asset string) ([]*mixin.SafeUtxo, error) {
+	var (
+		result []*mixin.SafeUtxo
+		offset uint64
+	)
+	for {
+		items, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
+			Members:   append([]string(nil), members...),
+			Threshold: threshold,
+			Offset:    offset,
+			State:     mixin.SafeUtxoStateUnspent,
+			Asset:     asset,
+			Limit:     safeTransactionInputLimit,
+			Order:     "ASC",
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if item == nil {
+				return nil, errors.New("invalid safe output response: nil output")
+			}
+			result = append(result, item)
+		}
+		if len(items) < safeTransactionInputLimit {
+			return result, nil
+		}
+		last := items[len(items)-1].Sequence
+		if last == ^uint64(0) || last+1 <= offset {
+			return nil, fmt.Errorf("safe output pagination stalled at sequence %d", offset)
+		}
+		offset = last + 1
+	}
 }
 
 func validateSafeSourceOutputs(outputs []*mixin.SafeUtxo, senders []string, threshold uint8, asset mixinnet.Hash) error {
@@ -430,8 +470,8 @@ func validateExistingSafeMultisigRequest(cmd *cobra.Command, details *safeMultis
 	if request.RequestID == "" || request.RawTransaction == "" {
 		return errors.New("invalid safe multisig request")
 	}
-	if request.RequestID != opt.input.TraceID && request.TransactionHash != opt.input.TraceID {
-		return fmt.Errorf("safe multisig request does not match trace %s", opt.input.TraceID)
+	if err := validateSafeRequestTrace(request, opt.input.TraceID); err != nil {
+		return err
 	}
 	if err := validateSafeMembers(request.Senders, request.SendersThreshold, "senders"); err != nil {
 		return fmt.Errorf("invalid safe multisig request: %w", err)
@@ -496,6 +536,13 @@ func validateSafeRequestSigners(request *mixin.SafeMultisigRequest) error {
 	return nil
 }
 
+func validateSafeRequestTrace(request *mixin.SafeMultisigRequest, trace string) error {
+	if request == nil || (request.RequestID != trace && request.TransactionHash != trace) {
+		return fmt.Errorf("safe multisig request does not match trace %s", trace)
+	}
+	return nil
+}
+
 func validateSafeRequestTransaction(request *mixin.SafeMultisigRequest, tx *mixinnet.Transaction) error {
 	if request == nil {
 		return errors.New("invalid safe multisig request: empty request")
@@ -553,15 +600,15 @@ func validateSafeRequestDetails(details *safeMultisigRequestDetails) (*mixinnet.
 	if err := validateSafeTransactionOutputs(tx, details.Receivers, request.Senders, request.SendersThreshold); err != nil {
 		return nil, err
 	}
+	if err := validateSafeTransactionSigners(tx, request.Signers, request.Senders); err != nil {
+		return nil, err
+	}
 	return tx, nil
 }
 
 func validateSafeTransactionOutputs(tx *mixinnet.Transaction, receivers []*mixin.SafeTransactionReceiver, senders []string, senderThreshold uint8) error {
 	if tx == nil || len(tx.Outputs) == 0 {
 		return errors.New("invalid safe transaction: outputs are required")
-	}
-	if len(tx.Outputs) > 2 {
-		return fmt.Errorf("invalid safe transaction: got %d outputs, want destination plus optional change", len(tx.Outputs))
 	}
 	if len(receivers) != len(tx.Outputs) {
 		return fmt.Errorf("invalid safe transaction receivers: got %d for %d outputs", len(receivers), len(tx.Outputs))
@@ -573,6 +620,12 @@ func validateSafeTransactionOutputs(tx *mixinnet.Transaction, receivers []*mixin
 		if err := validateSafeMembers(receiver.Members, receiver.Threshold, fmt.Sprintf("receiver %d members", i)); err != nil {
 			return err
 		}
+		if receiver.MemberHash.HasValue() {
+			membersHash, err := mixinnet.HashFromString(mixinnet.HashMembers(append([]string(nil), receiver.Members...)))
+			if err != nil || membersHash != receiver.MemberHash {
+				return fmt.Errorf("invalid safe transaction receiver %d: members hash mismatch", i)
+			}
+		}
 		output := tx.Outputs[i]
 		if output == nil {
 			return fmt.Errorf("invalid safe transaction output %d: nil", i)
@@ -582,6 +635,17 @@ func validateSafeTransactionOutputs(tx *mixinnet.Transaction, receivers []*mixin
 		}
 		if !bytes.Equal(output.Script, mixinnet.NewThresholdScript(receiver.Threshold)) {
 			return fmt.Errorf("invalid safe transaction output %d: receiver threshold does not match script", i)
+		}
+		if len(output.Keys) != len(receiver.Members) {
+			return fmt.Errorf("invalid safe transaction output %d: got %d keys for %d receiver members", i, len(output.Keys), len(receiver.Members))
+		}
+		if _, err := output.Mask.ToPoint(); err != nil {
+			return fmt.Errorf("invalid safe transaction output %d mask: %w", i, err)
+		}
+		for keyIndex, key := range output.Keys {
+			if _, err := key.ToPoint(); err != nil {
+				return fmt.Errorf("invalid safe transaction output %d key %d: %w", i, keyIndex, err)
+			}
 		}
 		amount, err := decimal.NewFromString(output.Amount.String())
 		if err != nil || !amount.IsPositive() {
@@ -613,6 +677,130 @@ func validateSafeRequestRaw(candidateRaw, confirmedRaw string) error {
 	}
 	if !bytes.Equal(candidatePayload, confirmedPayload) {
 		return errors.New("raw transaction payload does not match the confirmed transfer")
+	}
+	return nil
+}
+
+func validateSafeTransactionSigners(tx *mixinnet.Transaction, signers, members []string) error {
+	if tx == nil {
+		return errors.New("invalid safe multisig transaction: empty transaction")
+	}
+	expected := make(map[uint16]struct{}, len(signers))
+	seen := make(map[string]struct{}, len(signers))
+	for _, signer := range signers {
+		if _, ok := seen[signer]; ok {
+			return fmt.Errorf("invalid safe multisig signer %s: duplicate", signer)
+		}
+		seen[signer] = struct{}{}
+		index, err := safeSignerIndex(members, signer)
+		if err != nil {
+			return fmt.Errorf("invalid safe multisig signer %s: %w", signer, err)
+		}
+		expected[index] = struct{}{}
+	}
+	if len(tx.Signatures) != 0 && len(tx.Signatures) != len(tx.Inputs) {
+		return fmt.Errorf("invalid safe multisig signatures: got %d maps for %d inputs", len(tx.Signatures), len(tx.Inputs))
+	}
+	for inputIndex := range tx.Inputs {
+		var signatures map[uint16]*mixinnet.Signature
+		if len(tx.Signatures) > 0 {
+			signatures = tx.Signatures[inputIndex]
+		}
+		actual := make(map[uint16]struct{}, len(signatures))
+		for signerIndex, signature := range signatures {
+			if signature == nil {
+				return fmt.Errorf("invalid safe multisig signature for input %d signer %d: nil", inputIndex, signerIndex)
+			}
+			if int(signerIndex) >= len(members) {
+				return fmt.Errorf("invalid safe multisig signature for input %d: signer index %d is out of range", inputIndex, signerIndex)
+			}
+			actual[signerIndex] = struct{}{}
+		}
+		if len(actual) != len(expected) {
+			return fmt.Errorf("safe multisig signer metadata does not match raw signatures for input %d", inputIndex)
+		}
+		for signerIndex := range expected {
+			if _, ok := actual[signerIndex]; !ok {
+				return fmt.Errorf("safe multisig signer metadata does not match raw signatures for input %d", inputIndex)
+			}
+		}
+	}
+	return nil
+}
+
+func validateSafeSignaturePreservation(expectedRaw, actualRaw string) error {
+	expected, err := mixinnet.TransactionFromRaw(expectedRaw)
+	if err != nil {
+		return fmt.Errorf("parse expected signed transaction failed: %w", err)
+	}
+	actual, err := mixinnet.TransactionFromRaw(actualRaw)
+	if err != nil {
+		return fmt.Errorf("parse returned signed transaction failed: %w", err)
+	}
+	if len(expected.Signatures) != 0 && len(expected.Signatures) != len(expected.Inputs) {
+		return errors.New("invalid expected safe multisig signatures")
+	}
+	if len(actual.Signatures) != 0 && len(actual.Signatures) != len(actual.Inputs) {
+		return errors.New("invalid returned safe multisig signatures")
+	}
+	for inputIndex := range expected.Inputs {
+		if inputIndex >= len(actual.Inputs) {
+			return errors.New("returned safe multisig transaction input count changed")
+		}
+		if len(expected.Signatures) == 0 {
+			continue
+		}
+		for signerIndex, signature := range expected.Signatures[inputIndex] {
+			if signature == nil {
+				continue
+			}
+			if len(actual.Signatures) == 0 || actual.Signatures[inputIndex][signerIndex] == nil || *actual.Signatures[inputIndex][signerIndex] != *signature {
+				return fmt.Errorf("safe multisig signature for input %d signer %d was not preserved", inputIndex, signerIndex)
+			}
+		}
+	}
+	return nil
+}
+
+func validateSafeSignatureRemoval(previousRaw, unlockedRaw string, signerIndex uint16) error {
+	previous, err := mixinnet.TransactionFromRaw(previousRaw)
+	if err != nil {
+		return fmt.Errorf("parse previous safe multisig transaction failed: %w", err)
+	}
+	unlocked, err := mixinnet.TransactionFromRaw(unlockedRaw)
+	if err != nil {
+		return fmt.Errorf("parse unlocked safe multisig transaction failed: %w", err)
+	}
+	if len(previous.Signatures) != len(previous.Inputs) {
+		return errors.New("previous safe multisig transaction has invalid signatures")
+	}
+	if len(unlocked.Signatures) != 0 && len(unlocked.Signatures) != len(unlocked.Inputs) {
+		return errors.New("unlocked safe multisig transaction has invalid signatures")
+	}
+	for inputIndex := range previous.Inputs {
+		if previous.Signatures[inputIndex][signerIndex] == nil {
+			return fmt.Errorf("previous safe multisig transaction is missing signer %d on input %d", signerIndex, inputIndex)
+		}
+		var unlockedSignatures map[uint16]*mixinnet.Signature
+		if len(unlocked.Signatures) > 0 {
+			unlockedSignatures = unlocked.Signatures[inputIndex]
+		}
+		if unlockedSignatures[signerIndex] != nil {
+			return fmt.Errorf("unlocked safe multisig transaction still contains signer %d on input %d", signerIndex, inputIndex)
+		}
+		for index, signature := range previous.Signatures[inputIndex] {
+			if index == signerIndex || signature == nil {
+				continue
+			}
+			if unlockedSignatures[index] == nil || *unlockedSignatures[index] != *signature {
+				return fmt.Errorf("safe multisig signature for input %d signer %d was not preserved while unlocking", inputIndex, index)
+			}
+		}
+		for index, signature := range unlockedSignatures {
+			if signature != nil && previous.Signatures[inputIndex][index] == nil {
+				return fmt.Errorf("unexpected safe multisig signature for input %d signer %d appeared while unlocking", inputIndex, index)
+			}
+		}
 	}
 	return nil
 }
@@ -654,7 +842,13 @@ func validateSafeSignedResponse(previous, signed *mixin.SafeMultisigRequest, sub
 	if err != nil {
 		return fmt.Errorf("parse signed safe multisig transaction failed: %w", err)
 	}
-	return validateSafeRequestTransaction(signed, tx)
+	if err := validateSafeRequestTransaction(signed, tx); err != nil {
+		return err
+	}
+	if err := validateSafeTransactionSigners(tx, signed.Signers, signed.Senders); err != nil {
+		return err
+	}
+	return validateSafeSignaturePreservation(submittedRaw, signed.RawTransaction)
 }
 
 func validateSafeUnlockResponse(previous, unlocked *mixin.SafeMultisigRequest, currentID string) error {
@@ -698,7 +892,18 @@ func validateSafeUnlockResponse(previous, unlocked *mixin.SafeMultisigRequest, c
 	if err := validateSafeRequestRaw(unlocked.RawTransaction, previous.RawTransaction); err != nil {
 		return err
 	}
-	return nil
+	tx, err := mixinnet.TransactionFromRaw(unlocked.RawTransaction)
+	if err != nil {
+		return fmt.Errorf("parse unlocked safe multisig transaction failed: %w", err)
+	}
+	if err := validateSafeTransactionSigners(tx, unlocked.Signers, unlocked.Senders); err != nil {
+		return err
+	}
+	index, err := safeSignerIndex(previous.Senders, currentID)
+	if err != nil {
+		return err
+	}
+	return validateSafeSignatureRemoval(previous.RawTransaction, unlocked.RawTransaction, index)
 }
 
 func safeSignerIndex(members []string, clientID string) (uint16, error) {
@@ -788,6 +993,9 @@ func newCmdCancelSafeMultisigSignature() *cobra.Command {
 				return fmt.Errorf("read safe multisig request failed: %w", err)
 			}
 			request := &details.SafeMultisigRequest
+			if err := validateSafeRequestTrace(request, trace); err != nil {
+				return err
+			}
 			if err := validateSafeMembers(request.Senders, request.SendersThreshold, "senders"); err != nil {
 				return fmt.Errorf("invalid safe multisig request: %w", err)
 			}

@@ -3,6 +3,7 @@ package transfer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
@@ -28,6 +29,21 @@ func TestSelectLegacyMultisigOutputsAcceptsExactBalance(t *testing.T) {
 func TestSelectLegacyMultisigOutputsRejectsNilOutput(t *testing.T) {
 	if _, err := selectLegacyMultisigOutputs([]*mixin.MultisigUTXO{nil}, decimal.NewFromInt(1)); err == nil {
 		t.Fatal("expected nil output error")
+	}
+}
+
+func TestSelectLegacyMultisigOutputsUsesLargestAvailableInputs(t *testing.T) {
+	outputs := make([]*mixin.MultisigUTXO, legacyTransactionInputLimit+1)
+	for i := 0; i < legacyTransactionInputLimit; i++ {
+		outputs[i] = &mixin.MultisigUTXO{UTXOID: fmt.Sprintf("small-%03d", i), Amount: decimal.NewFromInt(1), State: mixin.UTXOStateUnspent}
+	}
+	outputs[legacyTransactionInputLimit] = &mixin.MultisigUTXO{UTXOID: "large", Amount: decimal.NewFromInt(1000), State: mixin.UTXOStateUnspent}
+	selected, err := selectLegacyMultisigOutputs(outputs, decimal.NewFromInt(1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 1 || selected[0].UTXOID != "large" {
+		t.Fatalf("selected %#v, want the single largest output", selected)
 	}
 }
 
@@ -183,7 +199,9 @@ func TestProcessLegacyMultisigRequestJoinsAndBroadcasts(t *testing.T) {
 		t.Fatal(err)
 	}
 	members := []string{"a", "b"}
-	request := func(signers []string) *mixin.MultisigRequest {
+	signedByA := legacyRawWithSignatures(t, tx, 0)
+	signedByAB := legacyRawWithSignatures(t, tx, 0, 1)
+	request := func(signers []string, signedRaw string) *mixin.MultisigRequest {
 		return &mixin.MultisigRequest{
 			RequestID:      "request",
 			AssetID:        assetID,
@@ -193,12 +211,12 @@ func TestProcessLegacyMultisigRequestJoinsAndBroadcasts(t *testing.T) {
 			Receivers:      []string{"receiver"},
 			Signers:        signers,
 			Action:         mixin.MultisigActionSign,
-			RawTransaction: raw,
+			RawTransaction: signedRaw,
 		}
 	}
 	client := &fakeLegacyRequestClient{
-		created: request([]string{"a"}),
-		signed:  request([]string{"a", "b"}),
+		created: request([]string{"a"}, signedByA),
+		signed:  request([]string{"a", "b"}, signedByAB),
 	}
 	var output bytes.Buffer
 	cmd := &cobra.Command{}
@@ -215,7 +233,7 @@ func TestProcessLegacyMultisigRequestJoinsAndBroadcasts(t *testing.T) {
 		func() (string, error) { return "pin", nil },
 		func(_ context.Context, candidate string) (*mixinnet.Transaction, error) {
 			broadcasts++
-			if candidate != raw {
+			if candidate != signedByAB {
 				t.Fatalf("broadcast raw mismatch")
 			}
 			hash := mixinnet.NewHash([]byte("result"))
@@ -233,7 +251,7 @@ func TestProcessLegacyMultisigRequestJoinsAndBroadcasts(t *testing.T) {
 func TestProcessLegacyMultisigRequestRejectsChangedSignedPayload(t *testing.T) {
 	assetID := "asset"
 	inputHash := mixinnet.NewHash([]byte("input"))
-	transaction := func(extra string) string {
+	transaction := func(extra string) *mixinnet.Transaction {
 		tx := &mixinnet.Transaction{
 			Version: mixinnet.TxVersionLegacy,
 			Asset:   mixinnet.NewHash([]byte(assetID)),
@@ -241,14 +259,15 @@ func TestProcessLegacyMultisigRequestRejectsChangedSignedPayload(t *testing.T) {
 			Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
 			Extra:   []byte(extra),
 		}
-		raw, err := tx.Dump()
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw
+		return tx
 	}
-	confirmedRaw := transaction("confirmed")
-	changedRaw := transaction("changed")
+	confirmed := transaction("confirmed")
+	confirmedRaw, err := confirmed.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdRaw := legacyRawWithSignatures(t, confirmed, 0)
+	changedRaw := legacyRawWithSignatures(t, transaction("changed"), 0, 1)
 	members := []string{"a", "b"}
 	request := func(signers []string, raw string) *mixin.MultisigRequest {
 		return &mixin.MultisigRequest{
@@ -264,12 +283,12 @@ func TestProcessLegacyMultisigRequestRejectsChangedSignedPayload(t *testing.T) {
 		}
 	}
 	client := &fakeLegacyRequestClient{
-		created: request([]string{"a"}, confirmedRaw),
+		created: request([]string{"a"}, createdRaw),
 		signed:  request([]string{"a", "b"}, changedRaw),
 	}
 	cmd := &cobra.Command{}
 	broadcasts := 0
-	err := processLegacyMultisigRequest(
+	err = processLegacyMultisigRequest(
 		cmd,
 		client,
 		"b",
@@ -305,7 +324,7 @@ func TestProcessLegacyMultisigRequestRejectsNonMonotonicSigners(t *testing.T) {
 		t.Fatal(err)
 	}
 	members := []string{"a", "b", "c"}
-	request := func(signers []string) *mixin.MultisigRequest {
+	request := func(signers []string, signedRaw string) *mixin.MultisigRequest {
 		return &mixin.MultisigRequest{
 			RequestID:      "request",
 			AssetID:        assetID,
@@ -315,12 +334,12 @@ func TestProcessLegacyMultisigRequestRejectsNonMonotonicSigners(t *testing.T) {
 			Receivers:      []string{"receiver"},
 			Signers:        signers,
 			Action:         mixin.MultisigActionSign,
-			RawTransaction: raw,
+			RawTransaction: signedRaw,
 		}
 	}
 	client := &fakeLegacyRequestClient{
-		created: request([]string{"a"}),
-		signed:  request([]string{"b"}),
+		created: request([]string{"a"}, legacyRawWithSignatures(t, tx, 0)),
+		signed:  request([]string{"b"}, legacyRawWithSignatures(t, tx, 1)),
 	}
 	broadcasts := 0
 	err = processLegacyMultisigRequest(
@@ -342,6 +361,61 @@ func TestProcessLegacyMultisigRequestRejectsNonMonotonicSigners(t *testing.T) {
 	}
 	if broadcasts != 0 {
 		t.Fatalf("unexpected broadcasts: %d", broadcasts)
+	}
+}
+
+func TestValidateLegacyRequestIdentityRequiresRawForSigners(t *testing.T) {
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte("asset")),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := tx.TransactionHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &mixin.MultisigRequest{TransactionHash: hash, Senders: []string{"a"}}
+	if err := validateLegacyRequestIdentity(request, raw, true); err != nil {
+		t.Fatalf("an unsigned request should be bound by transaction hash: %v", err)
+	}
+	request.Signers = []string{"a"}
+	if err := validateLegacyRequestIdentity(request, raw, true); err == nil {
+		t.Fatal("expected signer metadata without raw signatures to be rejected")
+	}
+	request.RawTransaction = raw
+	if err := validateLegacyRequestIdentity(request, raw, true); err == nil {
+		t.Fatal("expected signer metadata without a matching raw signature to be rejected")
+	}
+}
+
+func TestValidateLegacyUnlockRequestBindsTransaction(t *testing.T) {
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte("asset")),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &mixin.MultisigRequest{
+		RequestID:       "unlock-request",
+		Action:          mixin.MultisigActionUnlock,
+		TransactionHash: mixinnet.NewHash([]byte("other")),
+	}
+	if err := validateLegacyRequestAction(request, mixin.MultisigActionUnlock); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLegacyRequestIdentity(request, raw, false); err == nil {
+		t.Fatal("expected an unlock request for another transaction to be rejected")
 	}
 }
 
@@ -428,4 +502,27 @@ func (f *fakeLegacyRequestClient) SignMultisig(context.Context, string, string) 
 
 func (f fakeLegacyTransactionMaker) MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
 	return f.tx, nil
+}
+
+func legacyRawWithSignatures(t *testing.T, tx *mixinnet.Transaction, signerIndices ...uint16) string {
+	t.Helper()
+	copyTx := *tx
+	copyTx.Hash = nil
+	if len(signerIndices) > 0 {
+		signatures := make(map[uint16]*mixinnet.Signature, len(signerIndices))
+		for _, index := range signerIndices {
+			var signature mixinnet.Signature
+			signature[0] = byte(index + 1)
+			signatures[index] = &signature
+		}
+		copyTx.Signatures = make([]map[uint16]*mixinnet.Signature, len(copyTx.Inputs))
+		for inputIndex := range copyTx.Inputs {
+			copyTx.Signatures[inputIndex] = signatures
+		}
+	}
+	raw, err := copyTx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

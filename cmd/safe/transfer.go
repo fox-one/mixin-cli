@@ -28,7 +28,7 @@ func NewCmdTransfer() *cobra.Command {
 				return err
 			}
 
-			if opt.input.TraceID != "" {
+			if shouldContinueSafeMultisigTransfer(cmd, opt) {
 				request, err := readSafeMultisigRequest(ctx, client, opt.input.TraceID)
 				if err == nil {
 					return continueSafeMultisigTransfer(cmd, client, request, opt)
@@ -242,6 +242,21 @@ func (opt safeTransferOptions) isMultisigSource() bool {
 	return len(opt.senders) > 0 || opt.senderThreshold > 0
 }
 
+func shouldContinueSafeMultisigTransfer(cmd *cobra.Command, opt safeTransferOptions) bool {
+	if opt.input.TraceID == "" {
+		return false
+	}
+	if opt.isMultisigSource() {
+		return true
+	}
+	for _, name := range []string{"asset", "amount", "memo", "opponent", "receivers", "threshold"} {
+		if cmd.Flags().Changed(name) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateSafeTransactionResponse(request *mixin.SafeTransactionRequest, input mixin.TransferInput, senders []string, senderThreshold uint8, tx *mixinnet.Transaction, raw string, requireHash bool) error {
 	if request == nil {
 		return errors.New("empty safe transaction response")
@@ -256,6 +271,16 @@ func validateSafeTransactionResponse(request *mixin.SafeTransactionRequest, inpu
 		return errors.New("safe transaction response has no raw transaction")
 	}
 	if err := validateSafeRequestRaw(request.RawTransaction, raw); err != nil {
+		return err
+	}
+	responseTx, err := mixinnet.TransactionFromRaw(request.RawTransaction)
+	if err != nil {
+		return fmt.Errorf("parse safe transaction response failed: %w", err)
+	}
+	if err := validateSafeTransactionSigners(responseTx, request.Signers, senders); err != nil {
+		return err
+	}
+	if err := validateSafeSignaturePreservation(raw, request.RawTransaction); err != nil {
 		return err
 	}
 

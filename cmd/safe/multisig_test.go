@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -62,6 +63,39 @@ func TestSelectSafeMultisigOutputsSkipsNonUnspent(t *testing.T) {
 	}
 	if _, err := selectSafeMultisigOutputs(outputs, decimal.NewFromInt(3)); err == nil {
 		t.Fatal("expected insufficient balance error")
+	}
+}
+
+func TestSelectSafeMultisigOutputsUsesLargestAvailableInputs(t *testing.T) {
+	outputs := make([]*mixin.SafeUtxo, safeTransactionInputLimit+1)
+	for i := 0; i < safeTransactionInputLimit; i++ {
+		outputs[i] = &mixin.SafeUtxo{OutputID: fmt.Sprintf("small-%03d", i), Amount: decimal.NewFromInt(1), State: mixin.SafeUtxoStateUnspent}
+	}
+	outputs[safeTransactionInputLimit] = &mixin.SafeUtxo{OutputID: "large", Amount: decimal.NewFromInt(1000), State: mixin.SafeUtxoStateUnspent}
+	selected, err := selectSafeMultisigOutputs(outputs, decimal.NewFromInt(1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 1 || selected[0].OutputID != "large" {
+		t.Fatalf("selected %#v, want the single largest output", selected)
+	}
+}
+
+func TestListSafeMultisigOutputsPaginates(t *testing.T) {
+	first := make([]*mixin.SafeUtxo, safeTransactionInputLimit)
+	for i := range first {
+		first[i] = &mixin.SafeUtxo{OutputID: fmt.Sprintf("output-%03d", i), Sequence: uint64(i)}
+	}
+	client := &fakeSafeUtxoLister{pages: map[uint64][]*mixin.SafeUtxo{
+		0:                         first,
+		safeTransactionInputLimit: {{OutputID: "last", Sequence: safeTransactionInputLimit}},
+	}}
+	outputs, err := listSafeMultisigOutputs(context.Background(), client, []string{"a", "b"}, 2, "asset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != safeTransactionInputLimit+1 || len(client.offsets) != 2 || client.offsets[1] != safeTransactionInputLimit {
+		t.Fatalf("outputs = %d, offsets = %v", len(outputs), client.offsets)
 	}
 }
 
@@ -230,12 +264,13 @@ func TestValidateSafeRequestDetailsBindsChangeToSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	originalChange := details.Receivers[1]
 	details.Receivers[1] = &mixin.SafeTransactionReceiver{Members: []string{"attacker"}, Threshold: 1}
 	if _, err := validateSafeRequestDetails(details); err == nil {
 		t.Fatal("expected malicious change receiver to be rejected")
 	}
 
-	details.Receivers[1] = receivers[1]
+	details.Receivers[1] = originalChange
 	extra := *tx.Outputs[1]
 	tx.Outputs = append(tx.Outputs, &extra)
 	extraRaw, err := tx.Dump()
@@ -243,9 +278,9 @@ func TestValidateSafeRequestDetailsBindsChangeToSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	details.RawTransaction = extraRaw
-	details.Receivers = append(details.Receivers, receivers[1])
-	if _, err := validateSafeRequestDetails(details); err == nil {
-		t.Fatal("expected extra output to be rejected")
+	details.Receivers = append(details.Receivers, originalChange)
+	if _, err := validateSafeRequestDetails(details); err != nil {
+		t.Fatalf("expected split change outputs to be accepted: %v", err)
 	}
 
 	details.RawTransaction = raw
@@ -257,6 +292,13 @@ func TestValidateSafeRequestDetailsBindsChangeToSource(t *testing.T) {
 
 func TestValidateSafeTransactionResponseBindsLocalTransaction(t *testing.T) {
 	tx, raw, _, receivers := safeTransactionFixture(t)
+	signature := testSignature(1)
+	tx.Signatures = []map[uint16]*mixinnet.Signature{{0: signature}}
+	var err error
+	raw, err = tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
 	hash, err := tx.TransactionHash()
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +318,7 @@ func TestValidateSafeTransactionResponseBindsLocalTransaction(t *testing.T) {
 		Extra:            input.Memo,
 		Senders:          []string{"sender"},
 		SendersThreshold: 1,
+		Signers:          []string{"sender"},
 		RawTransaction:   raw,
 		Receivers:        receivers,
 	}
@@ -301,14 +344,33 @@ func TestValidateSafeTransactionResponseBindsLocalTransaction(t *testing.T) {
 }
 
 func TestValidateSafeUnlockResponseRequiresExactSignerRemoval(t *testing.T) {
-	_, raw, request, _ := safeTransactionFixture(t)
+	tx, _, request, _ := safeTransactionFixture(t)
 	request.Senders = []string{"a", "b", "c"}
 	request.SendersThreshold = 3
 	request.Signers = []string{"a", "b"}
-	request.RawTransaction = raw
+	tx.Signatures = []map[uint16]*mixinnet.Signature{{0: testSignature(1), 1: testSignature(2)}}
+	previousRaw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.RawTransaction = previousRaw
 	unlocked := *request
 	unlocked.Signers = []string{"a"}
+	tx.Signatures = []map[uint16]*mixinnet.Signature{{0: testSignature(1)}}
+	unlocked.RawTransaction, err = tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := validateSafeUnlockResponse(request, &unlocked, "b"); err != nil {
+		t.Fatal(err)
+	}
+	unlocked.RawTransaction = previousRaw
+	if err := validateSafeUnlockResponse(request, &unlocked, "b"); err == nil {
+		t.Fatal("expected raw transaction retaining the canceled signature to be rejected")
+	}
+	tx.Signatures = []map[uint16]*mixinnet.Signature{{0: testSignature(1)}}
+	unlocked.RawTransaction, err = tx.Dump()
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -358,6 +420,59 @@ func TestSignSafeMultisigRequestUsesCanonicalSignerIndex(t *testing.T) {
 	}
 	if len(signed.Signatures) != 1 || signed.Signatures[0][1] == nil {
 		t.Fatalf("expected signer b at canonical index 1, got %#v", signed.Signatures)
+	}
+}
+
+func TestValidateSafeSignedResponseRejectsSignerMissingFromRaw(t *testing.T) {
+	tx, raw, request, _ := safeTransactionFixture(t)
+	request.Senders = []string{"sender"}
+	request.SendersThreshold = 1
+	tx.Signatures = []map[uint16]*mixinnet.Signature{{0: testSignature(1)}}
+	submittedRaw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed := *request
+	signed.Signers = []string{"sender"}
+	signed.RawTransaction = raw
+	if err := validateSafeSignedResponse(request, &signed, submittedRaw, "sender"); err == nil {
+		t.Fatal("expected signer metadata without a raw signature to be rejected")
+	}
+}
+
+func TestShouldContinueSafeMultisigTransferRequiresExplicitJoinShape(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("asset", "", "")
+	cmd.Flags().String("amount", "", "")
+	cmd.Flags().String("memo", "", "")
+	cmd.Flags().String("opponent", "", "")
+	cmd.Flags().StringSlice("receivers", nil, "")
+	cmd.Flags().Uint8("threshold", 0, "")
+	opt := safeTransferOptions{input: mixin.TransferInput{TraceID: "trace"}}
+	if !shouldContinueSafeMultisigTransfer(cmd, opt) {
+		t.Fatal("trace-only invocation should continue an existing multisig request")
+	}
+	if err := cmd.Flags().Set("amount", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if shouldContinueSafeMultisigTransfer(cmd, opt) {
+		t.Fatal("personal transfer arguments must not silently switch to multisig mode")
+	}
+	opt.senders = []string{"a", "b"}
+	opt.senderThreshold = 2
+	if !shouldContinueSafeMultisigTransfer(cmd, opt) {
+		t.Fatal("an explicit multisig source should continue by trace")
+	}
+}
+
+func TestValidateSafeRequestTraceRejectsMisdirectedResponse(t *testing.T) {
+	request := &mixin.SafeMultisigRequest{RequestID: "other", TransactionHash: "hash"}
+	if err := validateSafeRequestTrace(request, "trace"); err == nil {
+		t.Fatal("expected a response for another request to be rejected")
+	}
+	request.TransactionHash = "trace"
+	if err := validateSafeRequestTrace(request, "trace"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -415,7 +530,25 @@ type fakeSafeMultisigSigner struct {
 
 func (f *fakeSafeMultisigSigner) SafeSignMultisigRequest(_ context.Context, input *mixin.SafeTransactionRequestInput) (*mixin.SafeMultisigRequest, error) {
 	f.raw = input.RawTransaction
-	return f.response, nil
+	response := *f.response
+	response.RawTransaction = input.RawTransaction
+	return &response, nil
+}
+
+type fakeSafeUtxoLister struct {
+	pages   map[uint64][]*mixin.SafeUtxo
+	offsets []uint64
+}
+
+func (f *fakeSafeUtxoLister) SafeListUtxos(_ context.Context, opt mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error) {
+	f.offsets = append(f.offsets, opt.Offset)
+	return f.pages[opt.Offset], nil
+}
+
+func testSignature(seed byte) *mixinnet.Signature {
+	var signature mixinnet.Signature
+	signature[0] = seed
+	return &signature
 }
 
 func safeTransactionFixture(t *testing.T) (*mixinnet.Transaction, string, *mixin.SafeMultisigRequest, []*mixin.SafeTransactionReceiver) {
@@ -439,6 +572,10 @@ func safeTransactionFixture(t *testing.T) (*mixinnet.Transaction, string, *mixin
 			},
 		},
 		Extra: []byte("memo"),
+	}
+	for _, output := range tx.Outputs {
+		output.Mask = mixinnet.GenerateKey(rand.Reader).Public()
+		output.Keys = []mixinnet.Key{mixinnet.GenerateKey(rand.Reader).Public()}
 	}
 	raw, err := tx.Dump()
 	if err != nil {
