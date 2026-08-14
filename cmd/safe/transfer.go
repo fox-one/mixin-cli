@@ -172,6 +172,9 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("create transaction request returned %d valid requests, want 1", len(requests))
 			}
 			request := requests[0]
+			if err := validateSafeTransactionResponse(request, input, []string{client.ClientID}, 1, tx, raw, false); err != nil {
+				return fmt.Errorf("validate created transaction request failed: %w", err)
+			}
 			if len(request.Views) != len(tx.Inputs) {
 				return fmt.Errorf("invalid transaction views: got %d for %d inputs", len(request.Views), len(tx.Inputs))
 			}
@@ -202,6 +205,9 @@ func NewCmdTransfer() *cobra.Command {
 				return fmt.Errorf("submit transaction request returned %d valid requests, want 1", len(requests))
 			}
 			request = requests[0]
+			if err := validateSafeTransactionResponse(request, input, []string{client.ClientID}, 1, tx, raw, true); err != nil {
+				return fmt.Errorf("validate submitted transaction request failed: %w", err)
+			}
 
 			cmd.Println("transaction hash:", request.TransactionHash)
 			return nil
@@ -234,4 +240,69 @@ type safeTransferOptions struct {
 
 func (opt safeTransferOptions) isMultisigSource() bool {
 	return len(opt.senders) > 0 || opt.senderThreshold > 0
+}
+
+func validateSafeTransactionResponse(request *mixin.SafeTransactionRequest, input mixin.TransferInput, senders []string, senderThreshold uint8, tx *mixinnet.Transaction, raw string, requireHash bool) error {
+	if request == nil {
+		return errors.New("empty safe transaction response")
+	}
+	if tx == nil || len(tx.Inputs) == 0 || len(tx.Outputs) == 0 {
+		return errors.New("invalid local safe transaction")
+	}
+	if request.RequestID != input.TraceID {
+		return fmt.Errorf("request id mismatch: expected %s, got %s", input.TraceID, request.RequestID)
+	}
+	if request.RawTransaction == "" {
+		return errors.New("safe transaction response has no raw transaction")
+	}
+	if err := validateSafeRequestRaw(request.RawTransaction, raw); err != nil {
+		return err
+	}
+
+	responseAsset := request.KernelAssetID
+	if !responseAsset.HasValue() {
+		responseAsset = request.AssetID
+	}
+	if !responseAsset.HasValue() {
+		responseAsset = request.Asset
+	}
+	if !responseAsset.HasValue() || responseAsset != tx.Asset {
+		return errors.New("safe transaction response asset mismatch")
+	}
+	if !request.Amount.Equal(input.Amount) {
+		return fmt.Errorf("amount mismatch: expected %s, got %s", input.Amount, request.Amount)
+	}
+	if request.Extra != input.Memo {
+		return fmt.Errorf("memo mismatch: expected %q, got %q", input.Memo, request.Extra)
+	}
+	if request.SendersThreshold != senderThreshold || !sameSafeMembers(request.Senders, senders) {
+		return errors.New("safe transaction response source mismatch")
+	}
+	if err := validateSafeTransactionOutputs(tx, request.Receivers, senders, senderThreshold); err != nil {
+		return err
+	}
+	if err := validateSafeDestination(input); err != nil {
+		return err
+	}
+	destinationMembers := input.OpponentMultisig.Receivers
+	destinationThreshold := input.OpponentMultisig.Threshold
+	if len(destinationMembers) == 0 {
+		destinationMembers = []string{input.OpponentID}
+		destinationThreshold = 1
+	}
+	if request.Receivers[0].Threshold != destinationThreshold || !sameSafeMembers(request.Receivers[0].Members, destinationMembers) {
+		return errors.New("safe transaction response destination mismatch")
+	}
+
+	hash, err := tx.TransactionHash()
+	if err != nil {
+		return fmt.Errorf("hash local safe transaction failed: %w", err)
+	}
+	if requireHash && request.TransactionHash == "" {
+		return errors.New("safe transaction response has no transaction hash")
+	}
+	if request.TransactionHash != "" && request.TransactionHash != hash.String() {
+		return fmt.Errorf("transaction hash mismatch: expected %s, got %s", hash, request.TransactionHash)
+	}
+	return nil
 }

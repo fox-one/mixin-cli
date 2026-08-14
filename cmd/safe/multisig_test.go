@@ -146,6 +146,10 @@ func TestValidateExistingSafeMultisigRequest(t *testing.T) {
 	if err := validateExistingSafeMultisigRequest(cmd, details, opt); err == nil {
 		t.Fatal("expected receiver mismatch")
 	}
+	details.Receivers = []*mixin.SafeTransactionReceiver{nil}
+	if err := validateExistingSafeMultisigRequest(cmd, details, opt); err == nil {
+		t.Fatal("expected nil receiver error")
+	}
 }
 
 func TestSafeMultisigRequestDetailsUnmarshalReceivers(t *testing.T) {
@@ -213,6 +217,108 @@ func TestValidateSafeRequestTransaction(t *testing.T) {
 	request.Amount = decimal.NewFromInt(3)
 	if err := validateSafeRequestTransaction(request, tx); err == nil {
 		t.Fatal("expected raw amount mismatch")
+	}
+}
+
+func TestValidateSafeRequestDetailsBindsChangeToSource(t *testing.T) {
+	tx, raw, request, receivers := safeTransactionFixture(t)
+	details := &safeMultisigRequestDetails{
+		SafeMultisigRequest: *request,
+		Receivers:           receivers,
+	}
+	if _, err := validateSafeRequestDetails(details); err != nil {
+		t.Fatal(err)
+	}
+
+	details.Receivers[1] = &mixin.SafeTransactionReceiver{Members: []string{"attacker"}, Threshold: 1}
+	if _, err := validateSafeRequestDetails(details); err == nil {
+		t.Fatal("expected malicious change receiver to be rejected")
+	}
+
+	details.Receivers[1] = receivers[1]
+	extra := *tx.Outputs[1]
+	tx.Outputs = append(tx.Outputs, &extra)
+	extraRaw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	details.RawTransaction = extraRaw
+	details.Receivers = append(details.Receivers, receivers[1])
+	if _, err := validateSafeRequestDetails(details); err == nil {
+		t.Fatal("expected extra output to be rejected")
+	}
+
+	details.RawTransaction = raw
+	details.Receivers = []*mixin.SafeTransactionReceiver{receivers[0], nil}
+	if _, err := validateSafeRequestDetails(details); err == nil {
+		t.Fatal("expected nil receiver to be rejected")
+	}
+}
+
+func TestValidateSafeTransactionResponseBindsLocalTransaction(t *testing.T) {
+	tx, raw, _, receivers := safeTransactionFixture(t)
+	hash, err := tx.TransactionHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := mixin.TransferInput{
+		TraceID:    "trace",
+		AssetID:    "asset",
+		Amount:     decimal.NewFromInt(2),
+		Memo:       "memo",
+		OpponentID: "receiver",
+	}
+	response := &mixin.SafeTransactionRequest{
+		RequestID:        input.TraceID,
+		TransactionHash:  hash.String(),
+		KernelAssetID:    tx.Asset,
+		Amount:           input.Amount,
+		Extra:            input.Memo,
+		Senders:          []string{"sender"},
+		SendersThreshold: 1,
+		RawTransaction:   raw,
+		Receivers:        receivers,
+	}
+	if err := validateSafeTransactionResponse(response, input, []string{"sender"}, 1, tx, raw, true); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict := *response
+	conflict.RequestID = "other-trace"
+	if err := validateSafeTransactionResponse(&conflict, input, []string{"sender"}, 1, tx, raw, true); err == nil {
+		t.Fatal("expected request id mismatch")
+	}
+	conflict = *response
+	conflict.TransactionHash = mixinnet.NewHash([]byte("other")).String()
+	if err := validateSafeTransactionResponse(&conflict, input, []string{"sender"}, 1, tx, raw, true); err == nil {
+		t.Fatal("expected transaction hash mismatch")
+	}
+	conflict = *response
+	conflict.Senders = []string{"attacker"}
+	if err := validateSafeTransactionResponse(&conflict, input, []string{"sender"}, 1, tx, raw, true); err == nil {
+		t.Fatal("expected source mismatch")
+	}
+}
+
+func TestValidateSafeUnlockResponseRequiresExactSignerRemoval(t *testing.T) {
+	_, raw, request, _ := safeTransactionFixture(t)
+	request.Senders = []string{"a", "b", "c"}
+	request.SendersThreshold = 3
+	request.Signers = []string{"a", "b"}
+	request.RawTransaction = raw
+	unlocked := *request
+	unlocked.Signers = []string{"a"}
+	if err := validateSafeUnlockResponse(request, &unlocked, "b"); err != nil {
+		t.Fatal(err)
+	}
+
+	unlocked.Signers = []string{"a", "b"}
+	if err := validateSafeUnlockResponse(request, &unlocked, "b"); err == nil {
+		t.Fatal("expected current signer to be removed")
+	}
+	unlocked.Signers = nil
+	if err := validateSafeUnlockResponse(request, &unlocked, "b"); err == nil {
+		t.Fatal("expected existing signer to remain")
 	}
 }
 
@@ -310,4 +416,47 @@ type fakeSafeMultisigSigner struct {
 func (f *fakeSafeMultisigSigner) SafeSignMultisigRequest(_ context.Context, input *mixin.SafeTransactionRequestInput) (*mixin.SafeMultisigRequest, error) {
 	f.raw = input.RawTransaction
 	return f.response, nil
+}
+
+func safeTransactionFixture(t *testing.T) (*mixinnet.Transaction, string, *mixin.SafeMultisigRequest, []*mixin.SafeTransactionReceiver) {
+	t.Helper()
+	asset := mixinnet.NewHash([]byte("asset"))
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersion,
+		Asset:   asset,
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash}},
+		Outputs: []*mixinnet.Output{
+			{
+				Type:   mixinnet.OutputTypeScript,
+				Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(2)),
+				Script: mixinnet.NewThresholdScript(1),
+			},
+			{
+				Type:   mixinnet.OutputTypeScript,
+				Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(3)),
+				Script: mixinnet.NewThresholdScript(1),
+			},
+		},
+		Extra: []byte("memo"),
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &mixin.SafeMultisigRequest{
+		RequestID:        "trace",
+		KernelAssetID:    asset,
+		AssetID:          "asset",
+		Amount:           decimal.NewFromInt(2),
+		Extra:            "memo",
+		Senders:          []string{"sender"},
+		SendersThreshold: 1,
+		RawTransaction:   raw,
+	}
+	receivers := []*mixin.SafeTransactionReceiver{
+		{Members: []string{"receiver"}, Threshold: 1},
+		{Members: []string{"sender"}, Threshold: 1},
+	}
+	return tx, raw, request, receivers
 }
