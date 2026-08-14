@@ -248,6 +248,52 @@ func TestProcessLegacyMultisigRequestJoinsAndBroadcasts(t *testing.T) {
 	}
 }
 
+func TestProcessLegacyMultisigRequestBroadcastsConfirmedRawWhenResponseOmitsRaw(t *testing.T) {
+	assetID := "asset"
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte(assetID)),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+	}
+	signedRaw := legacyRawWithSignatures(t, tx, 0)
+	hash, err := tx.TransactionHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeLegacyRequestClient{created: &mixin.MultisigRequest{
+		RequestID:       "request",
+		AssetID:         assetID,
+		Amount:          decimal.NewFromInt(1),
+		Threshold:       1,
+		Senders:         []string{"a"},
+		Receivers:       []string{"receiver"},
+		Signers:         []string{"a"},
+		Action:          mixin.MultisigActionSign,
+		TransactionHash: hash,
+	}}
+	err = processLegacyMultisigRequest(
+		&cobra.Command{},
+		client,
+		"a",
+		signedRaw,
+		mixin.TransferInput{AssetID: assetID, Amount: decimal.NewFromInt(1), OpponentID: "receiver"},
+		[]string{"a"},
+		1,
+		func() (string, error) { return "pin", nil },
+		func(_ context.Context, candidate string) (*mixinnet.Transaction, error) {
+			if candidate != signedRaw {
+				return nil, fmt.Errorf("broadcast raw mismatch: got %q", candidate)
+			}
+			return &mixinnet.Transaction{Hash: &hash}, nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProcessLegacyMultisigRequestRejectsChangedSignedPayload(t *testing.T) {
 	assetID := "asset"
 	inputHash := mixinnet.NewHash([]byte("input"))

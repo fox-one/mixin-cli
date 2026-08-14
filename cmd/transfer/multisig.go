@@ -178,7 +178,11 @@ func processLegacyMultisigRequest(cmd *cobra.Command, client legacyMultisigReque
 		return fmt.Errorf("refuse to broadcast unexpected multisig transaction: %w", err)
 	}
 
-	tx, err := broadcast(ctx, request.RawTransaction)
+	broadcastRaw := request.RawTransaction
+	if broadcastRaw == "" {
+		broadcastRaw = raw
+	}
+	tx, err := broadcast(ctx, broadcastRaw)
 	if err != nil {
 		return fmt.Errorf("broadcast multisig transaction failed: %w", err)
 	}
