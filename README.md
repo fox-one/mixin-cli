@@ -84,9 +84,11 @@ $ mixin-cli output list \
 ```
 
 Output order defaults to `ASC`. `--order DESC` is also supported, but the CLI must scan
-the matching output history client-side because the Safe API does not reliably apply
-descending order. For Safe outputs, `--offset` is a sequence; for legacy outputs it is
-an RFC3339 timestamp. In descending order, the offset is an exclusive upper bound.
+the matching output history client-side because the output APIs do not reliably provide
+descending pagination. For Safe outputs, `--offset` is a sequence; for legacy outputs it
+is an RFC3339 timestamp. In descending order, the offset is an exclusive upper bound.
+Use `--state` with `unspent`, `signed`, or `spent`; `--asset` accepts either an asset UUID
+or a kernel asset ID.
 
 List legacy multisig outputs:
 
