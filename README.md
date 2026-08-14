@@ -50,6 +50,55 @@ AssetId                               Symbol  Name         Balance
 Total USD Value: 0.09998898552
 ```
 
+List a Safe multisig group's balances:
+
+```bash
+$ mixin-cli safe assets \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2
+```
+
+Safe balances include only `unspent` outputs; `signed` and `spent` outputs are excluded.
+
+List a legacy multisig group's balances:
+
+```bash
+$ mixin-cli asset list \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2
+```
+
+### List outputs
+
+List Safe outputs (Safe is the default):
+
+```bash
+$ mixin-cli output list \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2 \
+  --state unspent \
+  --limit 100
+```
+
+Output order defaults to `ASC`. `--order DESC` is also supported, but the CLI must scan
+the matching output history client-side because the Safe API does not reliably apply
+descending order. For Safe outputs, `--offset` is a sequence; for legacy outputs it is
+an RFC3339 timestamp. In descending order, the offset is an exclusive upper bound.
+
+List legacy multisig outputs:
+
+```bash
+$ mixin-cli output list --legacy \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2 \
+  --state unspent \
+  --limit 100
+```
+
 ### Search asset with asset id or symbol
 
 search by asset id:
@@ -265,4 +314,3 @@ $ mixin-cli user search 25566
   "created_at": "2017-11-27T02:27:58.398423112Z"
 }
 ```
-
