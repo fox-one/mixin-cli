@@ -73,7 +73,7 @@ func NewCmdAssets() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opt.receivers, "receivers", nil, "safe multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.receivers, "receivers", nil, "safe multisig members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.threshold, "threshold", 0, "safe multisig threshold")
 
 	return cmd

@@ -40,6 +40,28 @@ func TestValidateListOptions(t *testing.T) {
 	}
 }
 
+func TestNormalizeListOptionsExpandsMixAddress(t *testing.T) {
+	members := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	address, err := mixin.NewMixAddress(members, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opt := listOptions{receivers: []string{address.String()}}
+	if err := normalizeListOptions(&opt); err != nil {
+		t.Fatal(err)
+	}
+	if opt.threshold != 2 {
+		t.Fatalf("threshold = %d, want 2", opt.threshold)
+	}
+	if got := strings.Join(opt.receivers, ","); got != strings.Join(members, ",") {
+		t.Fatalf("receivers = %q, want %q", got, strings.Join(members, ","))
+	}
+}
+
 type fakeSafeOutputClient struct {
 	calls []mixin.SafeListUtxoOption
 	pages [][]*mixin.SafeUtxo
@@ -513,5 +535,8 @@ func TestNewCmdListFlags(t *testing.T) {
 	}
 	if got := cmd.Flags().Lookup("order").DefValue; got != "ASC" {
 		t.Fatalf("default order = %q, want ASC", got)
+	}
+	if usage := cmd.Flags().Lookup("receivers").Usage; !strings.Contains(usage, "MIX address") {
+		t.Fatalf("receivers usage = %q, want MIX address support", usage)
 	}
 }

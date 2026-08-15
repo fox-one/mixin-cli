@@ -59,6 +59,14 @@ $ mixin-cli safe assets \
   --threshold 2
 ```
 
+For `safe assets`, `asset list`, and `output list`, the repeated member flags can be
+replaced by one MIX address. Its members and threshold are decoded automatically; an
+explicit `--threshold`, when provided, must match the address:
+
+```bash
+$ mixin-cli safe assets --receivers MIX...
+```
+
 Safe balances include only `unspent` outputs; `signed` and `spent` outputs are excluded.
 
 List a legacy multisig group's balances:

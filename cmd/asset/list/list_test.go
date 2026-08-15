@@ -4,12 +4,43 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/shopspring/decimal"
 )
+
+func TestNormalizeLegacyMultisigInputExpandsMixAddress(t *testing.T) {
+	members := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	address, err := mixin.NewMixAddress(members, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	input := mixin.TransferInput{}
+	input.OpponentMultisig.Receivers = []string{address.String()}
+	if err := normalizeLegacyMultisigInput(&input); err != nil {
+		t.Fatal(err)
+	}
+	if input.OpponentMultisig.Threshold != 2 {
+		t.Fatalf("threshold = %d, want 2", input.OpponentMultisig.Threshold)
+	}
+	if got := strings.Join(input.OpponentMultisig.Receivers, ","); got != strings.Join(members, ",") {
+		t.Fatalf("receivers = %q, want %q", got, strings.Join(members, ","))
+	}
+}
+
+func TestNewCmdListAdvertisesMixAddress(t *testing.T) {
+	flag := NewCmdList().Flags().Lookup("receivers")
+	if flag == nil || !strings.Contains(flag.Usage, "MIX address") {
+		t.Fatalf("receivers flag = %#v, want MIX address support", flag)
+	}
+}
 
 type fakeLegacyMultisigOutputLister struct {
 	calls        []mixin.ListMultisigOutputsOption

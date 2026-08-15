@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
@@ -47,6 +48,9 @@ func NewCmdList() *cobra.Command {
 		Use:   "list",
 		Short: "list safe or legacy outputs",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := normalizeListOptions(&opt); err != nil {
+				return err
+			}
 			if err := validateListOptions(opt); err != nil {
 				return err
 			}
@@ -77,7 +81,7 @@ func NewCmdList() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&opt.legacy, "legacy", false, "list legacy multisig outputs")
-	cmd.Flags().StringSliceVar(&opt.receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.receivers, "receivers", nil, "multisig members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.threshold, "threshold", 0, "multisig threshold")
 	cmd.Flags().StringVar(&opt.asset, "asset", "", "asset id or kernel asset id")
 	cmd.Flags().StringVar(&opt.state, "state", "", "output state: unspent, signed, or spent")
@@ -85,6 +89,13 @@ func NewCmdList() *cobra.Command {
 	cmd.Flags().IntVar(&opt.limit, "limit", 0, "target number of outputs to return; 0 returns all")
 	cmd.Flags().StringVar(&opt.order, "order", "ASC", "output order: ASC or DESC; DESC scans matching history client-side")
 	return cmd
+}
+
+func normalizeListOptions(opt *listOptions) error {
+	if opt == nil {
+		return errors.New("output list options are required")
+	}
+	return cmdutil.NormalizeMultisigGroup(&opt.receivers, &opt.threshold)
 }
 
 func validateListOptions(opt listOptions) error {

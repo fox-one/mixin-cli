@@ -77,6 +77,32 @@ func TestListUnspentOutputsForSafeMultisig(t *testing.T) {
 	}
 }
 
+func TestListUnspentOutputsForMixAddress(t *testing.T) {
+	members := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	address, err := mixin.NewMixAddress(members, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lister := &fakeSafeUtxoLister{outputs: [][]*mixin.SafeUtxo{nil}}
+
+	if _, err := listUnspentOutputs(context.Background(), lister, []string{address.String()}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(lister.calls) != 1 {
+		t.Fatalf("call count = %d, want 1", len(lister.calls))
+	}
+	call := lister.calls[0]
+	if call.Threshold != 2 {
+		t.Fatalf("threshold = %d, want 2", call.Threshold)
+	}
+	if got := strings.Join(call.Members, ","); got != strings.Join(members, ",") {
+		t.Fatalf("members = %q, want %q", got, strings.Join(members, ","))
+	}
+}
+
 func TestListUnspentOutputsRejectsStalledCursor(t *testing.T) {
 	page := make([]*mixin.SafeUtxo, 256)
 	for i := range page {
@@ -114,5 +140,12 @@ func TestValidateMultisigGroup(t *testing.T) {
 				t.Fatalf("validateMultisigGroup() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestNewCmdAssetsAdvertisesMixAddress(t *testing.T) {
+	flag := NewCmdAssets().Flags().Lookup("receivers")
+	if flag == nil || !strings.Contains(flag.Usage, "MIX address") {
+		t.Fatalf("receivers flag = %#v, want MIX address support", flag)
 	}
 }

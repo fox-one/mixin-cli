@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-sdk-go/v2"
 )
 
@@ -42,6 +43,9 @@ func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset st
 }
 
 func listUnspentOutputs(ctx context.Context, client safeUtxoLister, members []string, threshold uint8) (map[string][]*mixin.SafeUtxo, error) {
+	if err := cmdutil.NormalizeMultisigGroup(&members, &threshold); err != nil {
+		return nil, err
+	}
 	if err := validateMultisigGroup(members, threshold); err != nil {
 		return nil, err
 	}

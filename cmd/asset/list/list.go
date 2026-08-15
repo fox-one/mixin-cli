@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/asaskevich/govalidator"
+	"github.com/fox-one/mixin-cli/v2/cmdutil"
 	"github.com/fox-one/mixin-cli/v2/pkg/column"
 	"github.com/fox-one/mixin-cli/v2/pkg/jq"
 	"github.com/fox-one/mixin-cli/v2/session"
@@ -28,6 +29,9 @@ func NewCmdList() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
+			if err := normalizeLegacyMultisigInput(&opt.input); err != nil {
+				return err
+			}
 
 			client, err := s.GetClient()
 			if err != nil {
@@ -83,7 +87,7 @@ func NewCmdList() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "legacy multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "legacy multisig members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "legacy multisig threshold")
 
 	return cmd
@@ -101,6 +105,16 @@ type safeAssetFetcher interface {
 type legacyMultisigClient interface {
 	legacyMultisigOutputLister
 	safeAssetFetcher
+}
+
+func normalizeLegacyMultisigInput(input *mixin.TransferInput) error {
+	if input == nil {
+		return errors.New("legacy multisig input is required")
+	}
+	return cmdutil.NormalizeMultisigGroup(
+		&input.OpponentMultisig.Receivers,
+		&input.OpponentMultisig.Threshold,
+	)
 }
 
 func readLegacyMultisigAssets(ctx context.Context, client legacyMultisigClient, input mixin.TransferInput) ([]*mixin.Asset, error) {
