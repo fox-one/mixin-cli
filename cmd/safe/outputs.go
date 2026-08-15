@@ -43,9 +43,14 @@ func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset st
 }
 
 func listUnspentOutputs(ctx context.Context, client safeUtxoLister, members []string, threshold uint8) (map[string][]*mixin.SafeUtxo, error) {
-	if err := cmdutil.NormalizeMultisigGroup(&members, &threshold); err != nil {
+	input := mixin.TransferInput{}
+	input.OpponentMultisig.Receivers = members
+	input.OpponentMultisig.Threshold = threshold
+	if err := cmdutil.NormalizeMultisigDestination(&input); err != nil {
 		return nil, err
 	}
+	members = input.OpponentMultisig.Receivers
+	threshold = input.OpponentMultisig.Threshold
 	if err := validateMultisigGroup(members, threshold); err != nil {
 		return nil, err
 	}

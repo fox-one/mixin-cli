@@ -8,12 +8,21 @@ import (
 	"github.com/fox-one/mixin-sdk-go/v2"
 )
 
-// NormalizeMultisigGroup expands a single MIX address into its members and threshold.
-func NormalizeMultisigGroup(members *[]string, threshold *uint8) error {
-	if members == nil || threshold == nil {
-		return errors.New("multisig group input is required")
+func NormalizeMultisigDestination(input *mixin.TransferInput) error {
+	if input == nil {
+		return errors.New("transfer input is required")
 	}
+	return normalizeMultisigGroup(&input.OpponentMultisig.Receivers, &input.OpponentMultisig.Threshold, "receiver")
+}
 
+func NormalizeMultisigSource(senders *[]string, threshold *uint8) error {
+	return normalizeMultisigGroup(senders, threshold, "sender")
+}
+
+func normalizeMultisigGroup(members *[]string, threshold *uint8, role string) error {
+	if members == nil || threshold == nil {
+		return fmt.Errorf("multisig %s input is required", role)
+	}
 	values := *members
 	if len(values) == 0 {
 		return nil
@@ -30,17 +39,16 @@ func NormalizeMultisigGroup(members *[]string, threshold *uint8) error {
 		return nil
 	}
 	if len(values) != 1 {
-		return errors.New("a MIX address must be the only multisig receiver")
+		return fmt.Errorf("a multisig address must be the only %s", role)
 	}
 
 	address, err := mixin.MixAddressFromString(values[0])
 	if err != nil {
-		return fmt.Errorf("invalid MIX address: %w", err)
+		return fmt.Errorf("invalid multisig %s address: %w", role, err)
 	}
 	if *threshold != 0 && *threshold != address.Threshold {
-		return fmt.Errorf("threshold %d conflicts with MIX address threshold %d", *threshold, address.Threshold)
+		return fmt.Errorf("%s threshold %d conflicts with multisig address threshold %d", role, *threshold, address.Threshold)
 	}
-
 	*members = address.Members()
 	*threshold = address.Threshold
 	return nil

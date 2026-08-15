@@ -2,6 +2,7 @@ package output
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
 )
 
 func TestValidateListOptions(t *testing.T) {
@@ -59,6 +61,67 @@ func TestNormalizeListOptionsExpandsMixAddress(t *testing.T) {
 	}
 	if got := strings.Join(opt.receivers, ","); got != strings.Join(members, ",") {
 		t.Fatalf("receivers = %q, want %q", got, strings.Join(members, ","))
+	}
+}
+
+func TestNormalizeListOptionsExpandsMainnetMixAddress(t *testing.T) {
+	members := []string{
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+	}
+	address, err := mixin.NewMainnetMixAddress(members, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opt := listOptions{receivers: []string{address.String()}}
+	if err := normalizeListOptions(&opt); err != nil {
+		t.Fatal(err)
+	}
+	if opt.threshold != 1 {
+		t.Fatalf("threshold = %d, want 1", opt.threshold)
+	}
+	if got := strings.Join(opt.receivers, ","); got != strings.Join(members, ",") {
+		t.Fatalf("receivers = %q, want %q", got, strings.Join(members, ","))
+	}
+}
+
+func TestNormalizeListOptionsKeepsExplicitMembers(t *testing.T) {
+	opt := listOptions{receivers: []string{"member-a", "member-b"}, threshold: 2}
+	if err := normalizeListOptions(&opt); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(opt.receivers, ","); got != "member-a,member-b" || opt.threshold != 2 {
+		t.Fatalf("normalized options = %q/%d", got, opt.threshold)
+	}
+}
+
+func TestNormalizeListOptionsRejectsInvalidMixAddressInput(t *testing.T) {
+	address, err := mixin.NewMixAddress([]string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		opt  listOptions
+		want string
+	}{
+		{name: "threshold conflict", opt: listOptions{receivers: []string{address.String()}, threshold: 1}, want: "conflicts"},
+		{name: "mixed receivers", opt: listOptions{receivers: []string{address.String(), "member"}}, want: "only receiver"},
+		{name: "malformed address", opt: listOptions{receivers: []string{"MIX-invalid"}}, want: "invalid multisig receiver address"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := normalizeListOptions(&tt.opt)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want substring %q", err, tt.want)
+			}
+		})
 	}
 }
 

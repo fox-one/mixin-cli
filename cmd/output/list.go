@@ -95,7 +95,15 @@ func normalizeListOptions(opt *listOptions) error {
 	if opt == nil {
 		return errors.New("output list options are required")
 	}
-	return cmdutil.NormalizeMultisigGroup(&opt.receivers, &opt.threshold)
+	input := mixin.TransferInput{}
+	input.OpponentMultisig.Receivers = opt.receivers
+	input.OpponentMultisig.Threshold = opt.threshold
+	if err := cmdutil.NormalizeMultisigDestination(&input); err != nil {
+		return err
+	}
+	opt.receivers = input.OpponentMultisig.Receivers
+	opt.threshold = input.OpponentMultisig.Threshold
+	return nil
 }
 
 func validateListOptions(opt listOptions) error {

@@ -111,10 +111,7 @@ func normalizeLegacyMultisigInput(input *mixin.TransferInput) error {
 	if input == nil {
 		return errors.New("legacy multisig input is required")
 	}
-	return cmdutil.NormalizeMultisigGroup(
-		&input.OpponentMultisig.Receivers,
-		&input.OpponentMultisig.Threshold,
-	)
+	return cmdutil.NormalizeMultisigDestination(input)
 }
 
 func readLegacyMultisigAssets(ctx context.Context, client legacyMultisigClient, input mixin.TransferInput) ([]*mixin.Asset, error) {
