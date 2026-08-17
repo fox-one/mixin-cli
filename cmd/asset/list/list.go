@@ -14,6 +14,7 @@ import (
 	"github.com/fox-one/mixin-cli/v2/pkg/jq"
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
+	"github.com/fox-one/pkg/number"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -169,8 +170,8 @@ func readLegacyMultisigAssets(ctx context.Context, client legacyMultisigClient, 
 	return result, nil
 }
 
-func readLegacyMultisigBalances(ctx context.Context, client legacyMultisigOutputLister, receivers []string, threshold uint8) (map[string]decimal.Decimal, error) {
-	balances := map[string]decimal.Decimal{}
+func readLegacyMultisigBalances(ctx context.Context, client legacyMultisigOutputLister, receivers []string, threshold uint8) (number.Values, error) {
+	balances := number.Values{}
 	seen := map[string]struct{}{}
 	offset := time.Time{}
 	const limit = 500
@@ -201,7 +202,7 @@ func readLegacyMultisigBalances(ctx context.Context, client legacyMultisigOutput
 				}
 				seen[output.UTXOID] = struct{}{}
 			}
-			balances[output.AssetID] = balances[output.AssetID].Add(output.Amount)
+			balances.Add(output.AssetID, output.Amount)
 		}
 
 		if pageSize < limit {
