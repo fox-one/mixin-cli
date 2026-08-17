@@ -59,7 +59,7 @@ $ mixin-cli safe assets \
   --threshold 2
 ```
 
-For `safe assets`, `asset list`, and `output list`, the repeated member flags can be
+For `safe assets`, `asset list`, `output list`, and `output legacy list`, the repeated member flags can be
 replaced by one MIX address. Its members and threshold are decoded automatically; an
 explicit `--threshold`, when provided, must match the address:
 
@@ -80,7 +80,7 @@ $ mixin-cli asset list \
 
 ### List outputs
 
-List Safe outputs (Safe is the default):
+List Safe outputs:
 
 ```bash
 $ mixin-cli output list \
@@ -93,23 +93,26 @@ $ mixin-cli output list \
 
 Output order defaults to `ASC`. `--order DESC` is also supported, but the CLI must scan
 the matching output history client-side because the output APIs do not reliably provide
-descending pagination. For Safe outputs, `--offset` is a sequence; for legacy outputs it
-is an RFC3339 timestamp. In descending order, the offset is an exclusive upper bound.
+descending pagination. For Safe outputs, `--offset` is a sequence. In descending order,
+the offset is an exclusive upper bound.
 Use `--state` with `unspent`, `signed`, or `spent`; `--asset` accepts either an asset UUID
 or a kernel asset ID. Without `--limit`, all matching outputs are returned. A positive
-limit caps Safe results exactly; legacy results can exceed the target when multiple outputs
-share the boundary timestamp so that the next page cannot silently skip tied records.
+limit caps Safe results exactly.
 
 List legacy multisig outputs:
 
 ```bash
-$ mixin-cli output list --legacy \
+$ mixin-cli output legacy list \
   --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
   --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
   --threshold 2 \
   --state unspent \
   --limit 100
 ```
+
+For legacy outputs, `--offset` is an RFC3339 timestamp. Legacy results can exceed the
+target when multiple outputs share the boundary timestamp so that the next page cannot
+silently skip tied records.
 
 ### Search asset with asset id or symbol
 

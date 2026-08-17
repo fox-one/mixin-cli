@@ -21,7 +21,7 @@ func TestValidateListOptions(t *testing.T) {
 	}{
 		{name: "own safe", opt: listOptions{limit: 100, order: "DESC"}},
 		{name: "safe multisig", opt: listOptions{receivers: []string{"a", "b"}, threshold: 2, limit: 100, order: "ASC"}},
-		{name: "legacy multisig", opt: listOptions{legacy: true, receivers: []string{"a"}, threshold: 1, state: "unspent", limit: 100, order: "DESC"}},
+		{name: "multisig", opt: listOptions{receivers: []string{"a"}, threshold: 1, state: "unspent", limit: 100, order: "DESC"}},
 		{name: "missing receivers", opt: listOptions{threshold: 1, limit: 100, order: "DESC"}, wantErr: true},
 		{name: "missing threshold", opt: listOptions{receivers: []string{"a"}, limit: 100, order: "DESC"}, wantErr: true},
 		{name: "threshold too large", opt: listOptions{receivers: []string{"a"}, threshold: 2, limit: 100, order: "DESC"}, wantErr: true},
@@ -29,7 +29,7 @@ func TestValidateListOptions(t *testing.T) {
 		{name: "negative limit", opt: listOptions{limit: -1, order: "DESC"}, wantErr: true},
 		{name: "limit above API page size", opt: listOptions{limit: 501, order: "DESC"}},
 		{name: "invalid order", opt: listOptions{limit: 100, order: "random"}, wantErr: true},
-		{name: "legacy ascending", opt: listOptions{legacy: true, limit: 100, order: "ASC"}},
+		{name: "ascending", opt: listOptions{limit: 100, order: "ASC"}},
 	}
 
 	for _, tt := range tests {
@@ -327,10 +327,9 @@ func TestListLegacyOutputsDescending(t *testing.T) {
 	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{firstPage, secondPage}}
 
 	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		asset:  "asset-a",
-		limit:  3,
-		order:  "DESC",
+		asset: "asset-a",
+		limit: 3,
+		order: "DESC",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -368,10 +367,9 @@ func TestListLegacyOutputsAscendingFillsAssetLimit(t *testing.T) {
 	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{firstPage, secondPage}}
 
 	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		asset:  "asset-a",
-		limit:  2,
-		order:  "ASC",
+		asset: "asset-a",
+		limit: 2,
+		order: "ASC",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +393,6 @@ func TestListLegacyOutputsAscendingExcludesOffset(t *testing.T) {
 		t.Run("asset="+assetID, func(t *testing.T) {
 			client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{page}}
 			outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-				legacy: true,
 				asset:  assetID,
 				offset: createdAt.Format(time.RFC3339Nano),
 				limit:  1,
@@ -419,7 +416,7 @@ func TestListLegacyOutputsWithoutLimitReturnsAll(t *testing.T) {
 	}
 	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{page}}
 
-	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{legacy: true, order: "ASC"})
+	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{order: "ASC"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,9 +456,8 @@ func TestListLegacyOutputsDoesNotSplitCreatedAtGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{tt.page}}
 			outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-				legacy: true,
-				limit:  1,
-				order:  tt.name,
+				limit: 1,
+				order: tt.name,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -496,9 +492,8 @@ func TestListLegacyOutputsKeepsCreatedAtGroupAcrossAPIPages(t *testing.T) {
 	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{firstPage, secondPage}}
 
 	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		limit:  500,
-		order:  "ASC",
+		limit: 500,
+		order: "ASC",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -519,10 +514,9 @@ func TestListLegacyOutputsResolvesKernelAssetID(t *testing.T) {
 	}
 
 	outputs, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		asset:  kernelAssetID,
-		limit:  1,
-		order:  "ASC",
+		asset: kernelAssetID,
+		limit: 1,
+		order: "ASC",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -535,10 +529,9 @@ func TestListLegacyOutputsResolvesKernelAssetID(t *testing.T) {
 func TestListLegacyOutputsReturnsAssetResolutionError(t *testing.T) {
 	client := &fakeLegacyOutputLister{assetErr: errors.New("metadata unavailable")}
 	_, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		asset:  strings.Repeat("a", 64),
-		limit:  1,
-		order:  "ASC",
+		asset: strings.Repeat("a", 64),
+		limit: 1,
+		order: "ASC",
 	})
 	if err == nil {
 		t.Fatal("expected asset resolution error")
@@ -556,10 +549,9 @@ func TestListLegacyOutputsRejectsStalledCursor(t *testing.T) {
 	client := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{firstPage, secondPage}}
 
 	_, err := listLegacyOutputs(context.Background(), client, listOptions{
-		legacy: true,
-		asset:  "target-asset",
-		limit:  500,
-		order:  "ASC",
+		asset: "target-asset",
+		limit: 500,
+		order: "ASC",
 	})
 	if err == nil {
 		t.Fatal("expected stalled cursor error")
@@ -577,7 +569,7 @@ func TestListOutputsReturnEmptyArrays(t *testing.T) {
 	}
 
 	legacyClient := &fakeLegacyOutputLister{pages: [][]*mixin.MultisigUTXO{nil}}
-	legacyOutputs, err := listLegacyOutputs(context.Background(), legacyClient, listOptions{legacy: true, limit: 1, order: "ASC"})
+	legacyOutputs, err := listLegacyOutputs(context.Background(), legacyClient, listOptions{limit: 1, order: "ASC"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +580,7 @@ func TestListOutputsReturnEmptyArrays(t *testing.T) {
 
 func TestNewCmdListFlags(t *testing.T) {
 	cmd := NewCmdList()
-	for _, name := range []string{"legacy", "receivers", "threshold", "asset", "state", "offset", "limit", "order"} {
+	for _, name := range []string{"receivers", "threshold", "asset", "state", "offset", "limit", "order"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Fatalf("missing --%s flag", name)
 		}
@@ -601,5 +593,65 @@ func TestNewCmdListFlags(t *testing.T) {
 	}
 	if usage := cmd.Flags().Lookup("receivers").Usage; !strings.Contains(usage, "MIX address") {
 		t.Fatalf("receivers usage = %q, want MIX address support", usage)
+	}
+	if cmd.Flags().Lookup("legacy") != nil {
+		t.Fatal("safe output list must not expose --legacy")
+	}
+}
+
+func TestNewCmdLegacyListFlags(t *testing.T) {
+	cmd := NewCmdLegacyList()
+	for _, name := range []string{"receivers", "threshold", "asset", "state", "offset", "limit", "order"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("missing --%s flag", name)
+		}
+	}
+	if usage := cmd.Flags().Lookup("offset").Usage; !strings.Contains(usage, "RFC3339") {
+		t.Fatalf("offset usage = %q, want RFC3339 timestamp", usage)
+	}
+	if cmd.Flags().Lookup("legacy") != nil {
+		t.Fatal("legacy output list must not expose --legacy")
+	}
+}
+
+func TestNewCmdLegacyContainsList(t *testing.T) {
+	cmd := NewCmdLegacy()
+	for _, subcommand := range cmd.Commands() {
+		if subcommand.Name() == "list" {
+			return
+		}
+	}
+	t.Fatal("legacy command is missing list subcommand")
+}
+
+func TestNewCmdOutputSeparatesSafeAndLegacyLists(t *testing.T) {
+	cmd := NewCmdOutput()
+
+	safeList, _, err := cmd.Find([]string{"list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := safeList.CommandPath(); got != "output list" {
+		t.Fatalf("safe command path = %q, want output list", got)
+	}
+
+	legacyList, _, err := cmd.Find([]string{"legacy", "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := legacyList.CommandPath(); got != "output legacy list" {
+		t.Fatalf("legacy command path = %q, want output legacy list", got)
+	}
+}
+
+func TestNewCmdOutputRejectsLegacyFlagOnSafeList(t *testing.T) {
+	cmd := NewCmdOutput()
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"list", "--legacy"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --legacy") {
+		t.Fatalf("error = %v, want unknown --legacy flag", err)
 	}
 }
