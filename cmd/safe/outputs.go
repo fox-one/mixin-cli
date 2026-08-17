@@ -13,35 +13,6 @@ type safeUtxoLister interface {
 	SafeListUtxos(context.Context, mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error)
 }
 
-func listAssetUnspentOutputs(ctx context.Context, client *mixin.Client, asset string) ([]*mixin.SafeUtxo, error) {
-	var result []*mixin.SafeUtxo
-
-	const LIMIT = 256
-	var offset uint64
-	for {
-		items, err := client.SafeListUtxos(ctx, mixin.SafeListUtxoOption{
-			Offset: offset,
-			State:  mixin.SafeUtxoStateUnspent,
-			Asset:  asset,
-			Limit:  LIMIT,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		result = append(result, items...)
-		if len(items) < LIMIT {
-			return result, nil
-		}
-
-		next := items[len(items)-1].Sequence + 1
-		if next <= offset {
-			return nil, fmt.Errorf("safe output pagination stalled at sequence %d", offset)
-		}
-		offset = next
-	}
-}
-
 func listUnspentOutputs(ctx context.Context, client safeUtxoLister, members []string, threshold uint8) (map[string][]*mixin.SafeUtxo, error) {
 	input := mixin.TransferInput{}
 	input.OpponentMultisig.Receivers = members
