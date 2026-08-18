@@ -37,11 +37,14 @@ func NewCmdTransfer() *cobra.Command {
 			}
 			input.Amount, _ = decimal.NewFromString(opt.amount)
 
+			if !opt.isMultisigSource() && (opt.raw != "" || opt.prepare) {
+				return errors.New("raw and prepare require a legacy multisig source")
+			}
 			if opt.isMultisigSource() {
 				if opt.qrcode {
 					return errors.New("qrcode is not supported for multisig source transfers")
 				}
-				return runMultisigTransfer(cmd, client, input, opt.senders, opt.senderThreshold, opt.yes)
+				return runMultisigTransfer(cmd, client, input, opt.senders, opt.senderThreshold, opt.raw, opt.prepare, opt.yes)
 			}
 
 			if input.TraceID == "" {
@@ -142,6 +145,8 @@ func NewCmdTransfer() *cobra.Command {
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
 	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")
+	cmd.Flags().StringVar(&opt.raw, "raw", "", "prepared or signed legacy multisig raw transaction")
+	cmd.Flags().BoolVar(&opt.prepare, "prepare", false, "prepare a legacy mainnet multisig raw transaction without signing")
 	cmd.Flags().BoolVar(&opt.qrcode, "qrcode", false, "show qrcode")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve payment automatically")
 
@@ -156,6 +161,8 @@ type transferOptions struct {
 	amount          string
 	senders         []string
 	senderThreshold uint8
+	raw             string
+	prepare         bool
 	qrcode          bool
 	yes             bool
 }

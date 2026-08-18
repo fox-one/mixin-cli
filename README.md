@@ -265,6 +265,20 @@ trace, so the CLI recovers existing requests from the multisig outputs.
 Every signer re-runs the same command with the same trace and transfer fields;
 the first signer creates the request and later signers join it.
 
+Legacy transactions sent to a mainnet-style `MIX...` receiver use randomized
+ghost keys, so the raw transaction cannot be reconstructed from the trace.
+Prepare the raw transaction once, then pass that exact raw to every signer:
+
+```bash
+$ mixin-cli transfer <same transfer flags> --prepare
+$ mixin-cli transfer <same transfer flags> --raw <prepared-or-signed-raw-transaction>
+```
+
+The prepare step does not create or sign a multisig request. UUID-style MIX
+receivers continue to use the automatic trace-based create-or-join flow. Since
+a mainnet receiver cannot be derived from legacy raw ghost keys, distribute the
+prepared raw over a trusted channel and verify it is unchanged before signing.
+
 ```bash
 $ mixin-cli transfer \
   --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \

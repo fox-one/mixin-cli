@@ -36,6 +36,11 @@ type legacyTransactionResolverClient interface {
 	CreateMultisig(context.Context, string, string) (*mixin.MultisigRequest, error)
 }
 
+type legacyExplicitRawResolverClient interface {
+	legacyOutputLister
+	legacyTransactionMaker
+}
+
 type legacyMultisigClient interface {
 	legacyOutputLister
 	legacyTransactionMaker
@@ -54,10 +59,13 @@ type legacyMultisigRequestClient interface {
 
 type legacyBroadcastFunc func(context.Context, string) (*mixinnet.Transaction, error)
 
-func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.TransferInput, senders []string, senderThreshold uint8, yes bool) error {
+func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.TransferInput, senders []string, senderThreshold uint8, providedRaw string, prepare, yes bool) error {
 	ctx := cmd.Context()
 	if err := validateLegacyMultisigTransfer(input, senders, senderThreshold); err != nil {
 		return err
+	}
+	if providedRaw != "" && prepare {
+		return errors.New("raw and prepare are mutually exclusive")
 	}
 	if !containsString(senders, client.ClientID) {
 		return errors.New("current user is not a source multisig member")
@@ -72,9 +80,31 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 		return fmt.Errorf("read asset failed: %w", err)
 	}
 
-	raw, state, request, outputs, err := resolveLegacyMultisigTransaction(ctx, client, input, senders, senderThreshold, receiver)
-	if err != nil {
+	mainnetReceiver := legacyReceiverIsMainnet(receiver)
+	if err := validateLegacyTransferMode(mainnetReceiver, providedRaw, prepare); err != nil {
 		return err
+	}
+	var (
+		raw     = providedRaw
+		state   string
+		request *mixin.MultisigRequest
+		outputs []*mixin.MultisigUTXO
+	)
+	if raw != "" {
+		state, err = resolveExplicitLegacyRaw(ctx, client, raw, input, senders, senderThreshold, receiver)
+		if err != nil {
+			return err
+		}
+	} else if mainnetReceiver {
+		outputs, err = listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, mixin.UTXOStateUnspent)
+		if err != nil {
+			return fmt.Errorf("list unspent multisig outputs failed: %w", err)
+		}
+	} else {
+		raw, state, request, outputs, err = resolveLegacyMultisigTransaction(ctx, client, input, senders, senderThreshold, receiver)
+		if err != nil {
+			return err
+		}
 	}
 	cmd.Printf("Transfer %s %s from %d/%d multisig to %s\n", input.Amount, asset.Symbol, senderThreshold, len(senders), receiverNames)
 	cmd.Println("trace id:", input.TraceID)
@@ -109,6 +139,13 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 	}
 
 	cmd.Println("raw transaction:", raw)
+	if prepare {
+		cmd.Println("prepared only; rerun the same transfer with --raw followed by this raw transaction")
+		return nil
+	}
+	if providedRaw != "" && mainnetReceiver {
+		cmd.Println("warning: a mainnet receiver cannot be derived from legacy raw; sign only a raw produced by the trusted --prepare step")
+	}
 	if !yes && !conformTransfer() {
 		return nil
 	}
@@ -127,6 +164,19 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 			return mixinnet.NewClient(mixinnet.DefaultLegacyConfig).SendRawTransaction(ctx, raw)
 		},
 	)
+}
+
+func validateLegacyTransferMode(mainnetReceiver bool, raw string, prepare bool) error {
+	if raw != "" && prepare {
+		return errors.New("raw and prepare are mutually exclusive")
+	}
+	if prepare && !mainnetReceiver {
+		return errors.New("prepare is only required for legacy multisig transfers to mainnet receivers")
+	}
+	if mainnetReceiver && raw == "" && !prepare {
+		return errors.New("legacy multisig transfers to mainnet receivers require --prepare first, then --raw for every signer")
+	}
+	return nil
 }
 
 func processLegacyMultisigRequest(cmd *cobra.Command, client legacyMultisigRequestClient, currentID, raw string, input mixin.TransferInput, senders []string, senderThreshold uint8, readPin func() (string, error), broadcast legacyBroadcastFunc) error {
@@ -292,6 +342,18 @@ func legacyTransferReceiver(ctx context.Context, client legacyMultisigClient, in
 		names = append(names, user.FullName)
 	}
 	return address, names, nil
+}
+
+func legacyReceiverIsMainnet(receiver *mixin.MixAddress) bool {
+	if receiver == nil {
+		return false
+	}
+	members := receiver.Members()
+	if len(members) == 0 {
+		return false
+	}
+	_, err := uuid.FromString(members[0])
+	return err != nil
 }
 
 func listLegacyMultisigOutputs(ctx context.Context, client legacyOutputLister, members []string, threshold uint8, assetID, state string) ([]*mixin.MultisigUTXO, error) {
@@ -511,6 +573,147 @@ func findLegacyRawInOutputs(ctx context.Context, client legacyTransactionMaker, 
 	return "", nil
 }
 
+func resolveExplicitLegacyRaw(ctx context.Context, client legacyExplicitRawResolverClient, raw string, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, error) {
+	tx, err := mixinnet.TransactionFromRaw(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse provided legacy raw transaction failed: %w", err)
+	}
+	for _, state := range []string{mixin.UTXOStateSigned, mixin.UTXOStateUnspent, mixin.UTXOStateSpent} {
+		outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, state)
+		if err != nil {
+			return "", fmt.Errorf("list %s multisig outputs failed: %w", state, err)
+		}
+		inputs, ok, err := legacyTransactionInputs(tx, outputs)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			continue
+		}
+		if err := validateExplicitLegacyRaw(ctx, client, raw, inputs, input, senders, senderThreshold, receiver); err != nil {
+			return "", err
+		}
+		return state, nil
+	}
+	return "", errors.New("provided legacy raw transaction does not spend outputs from the source multisig")
+}
+
+func legacyTransactionInputs(tx *mixinnet.Transaction, outputs []*mixin.MultisigUTXO) ([]*mixin.MultisigUTXO, bool, error) {
+	if tx == nil || len(tx.Inputs) == 0 {
+		return nil, false, nil
+	}
+	byInput := make(map[string]*mixin.MultisigUTXO, len(outputs))
+	for i, output := range outputs {
+		if output == nil {
+			return nil, false, fmt.Errorf("invalid legacy output %d: nil", i)
+		}
+		byInput[fmt.Sprintf("%s:%d", output.TransactionHash.String(), output.OutputIndex)] = output
+	}
+	inputs := make([]*mixin.MultisigUTXO, 0, len(tx.Inputs))
+	seen := make(map[string]struct{}, len(tx.Inputs))
+	for _, txInput := range tx.Inputs {
+		if txInput == nil || txInput.Hash == nil {
+			return nil, false, nil
+		}
+		key := fmt.Sprintf("%s:%d", txInput.Hash.String(), txInput.Index)
+		if _, ok := seen[key]; ok {
+			return nil, false, errors.New("provided legacy raw transaction contains duplicate inputs")
+		}
+		seen[key] = struct{}{}
+		output := byInput[key]
+		if output == nil {
+			return nil, false, nil
+		}
+		inputs = append(inputs, output)
+	}
+	return inputs, true, nil
+}
+
+func validateExplicitLegacyRaw(ctx context.Context, client legacyTransactionMaker, raw string, inputs []*mixin.MultisigUTXO, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) error {
+	if receiver == nil {
+		return errors.New("provided legacy raw transaction receiver is required")
+	}
+	tx, err := mixinnet.TransactionFromRaw(raw)
+	if err != nil {
+		return fmt.Errorf("parse provided legacy raw transaction failed: %w", err)
+	}
+	if tx.Version != mixinnet.TxVersionLegacy {
+		return fmt.Errorf("provided legacy raw transaction has version %d", tx.Version)
+	}
+	if tx.Asset != mixinnet.NewHash([]byte(input.AssetID)) {
+		return errors.New("provided legacy raw transaction asset mismatch")
+	}
+	if string(tx.Extra) != input.Memo || len(tx.Outputs) == 0 {
+		return errors.New("provided legacy raw transaction transfer fields mismatch")
+	}
+	amount, err := decimal.NewFromString(tx.Outputs[0].Amount.String())
+	if err != nil || !amount.Equal(input.Amount) {
+		return errors.New("provided legacy raw transaction amount mismatch")
+	}
+	matchedInputs, ok, err := legacyTransactionInputs(tx, inputs)
+	if err != nil {
+		return err
+	}
+	if !ok || len(matchedInputs) != len(inputs) {
+		return errors.New("provided legacy raw transaction input mismatch")
+	}
+	inputs = matchedInputs
+	if err := validateLegacySourceOutputs(inputs, senders, senderThreshold, input.AssetID); err != nil {
+		return err
+	}
+
+	builder := mixin.NewLegacyTransactionBuilder(inputs)
+	builder.Hint = input.TraceID
+	builder.Memo = input.Memo
+	expected, err := client.MakeTransaction(ctx, builder, []*mixin.TransactionOutput{{Address: receiver, Amount: input.Amount}})
+	if err != nil {
+		return fmt.Errorf("rebuild provided legacy raw transaction failed: %w", err)
+	}
+	if legacyReceiverIsMainnet(receiver) {
+		if err := normalizeLegacyMainnetDestination(expected, tx); err != nil {
+			return err
+		}
+	}
+	expectedPayload, err := expected.DumpPayload()
+	if err != nil {
+		return fmt.Errorf("dump expected legacy transaction failed: %w", err)
+	}
+	actualPayload, err := tx.DumpPayload()
+	if err != nil {
+		return fmt.Errorf("dump provided legacy transaction failed: %w", err)
+	}
+	if !bytes.Equal(expectedPayload, actualPayload) {
+		return errors.New("provided legacy raw transaction does not match the requested transfer")
+	}
+	return nil
+}
+
+func normalizeLegacyMainnetDestination(expected, actual *mixinnet.Transaction) error {
+	if expected == nil || actual == nil || len(expected.Outputs) == 0 || len(actual.Outputs) != len(expected.Outputs) {
+		return errors.New("provided legacy raw transaction output mismatch")
+	}
+	want := expected.Outputs[0]
+	got := actual.Outputs[0]
+	if want == nil || got == nil || got.Type != want.Type || got.Amount.Cmp(want.Amount) != 0 || !bytes.Equal(got.Script, want.Script) || got.Withdrawal != nil || len(got.Keys) != len(want.Keys) {
+		return errors.New("provided legacy raw transaction mainnet destination shape mismatch")
+	}
+	if _, err := got.Mask.ToPoint(); err != nil {
+		return fmt.Errorf("provided legacy raw transaction mainnet mask is invalid: %w", err)
+	}
+	for i, key := range got.Keys {
+		if _, err := key.ToPoint(); err != nil {
+			return fmt.Errorf("provided legacy raw transaction mainnet key %d is invalid: %w", i, err)
+		}
+	}
+
+	// Mainnet ghost keys contain fresh randomness and cannot be rebuilt from a
+	// public MIX address. The explicitly supplied raw is the signing identity;
+	// normalize only those random fields before comparing every other byte.
+	got.Mask = want.Mask
+	got.Keys = append([]mixinnet.Key(nil), want.Keys...)
+	return nil
+}
+
 func groupLegacyOutputsByRaw(outputs []*mixin.MultisigUTXO) (map[string][]*mixin.MultisigUTXO, error) {
 	groups := make(map[string][]*mixin.MultisigUTXO)
 	for i, output := range outputs {
@@ -591,8 +794,15 @@ func validateLegacyMultisigRequest(request *mixin.MultisigRequest, input mixin.T
 		return errors.New("source multisig members or threshold mismatch")
 	}
 	wantReceivers := input.OpponentMultisig.Receivers
+	receiverThreshold := input.OpponentMultisig.Threshold
 	if len(wantReceivers) == 0 {
 		wantReceivers = []string{input.OpponentID}
+		receiverThreshold = 1
+	}
+	if len(request.Receivers) == 0 {
+		if _, err := mixin.NewMainnetMixAddress(wantReceivers, receiverThreshold); err == nil {
+			return nil
+		}
 	}
 	if !sameMembers(request.Receivers, wantReceivers) {
 		return errors.New("receiver mismatch")

@@ -52,6 +52,148 @@ func TestLegacyTransferReceiverAcceptsMainnetMembers(t *testing.T) {
 	}
 }
 
+func TestValidateExplicitLegacyRawAcceptsPreparedMainnetTransfer(t *testing.T) {
+	assetID := "asset"
+	senders := []string{"00000000-0000-0000-0000-000000000001"}
+	inputHash := mixinnet.NewHash([]byte("input"))
+	outputs := []*mixin.MultisigUTXO{{
+		UTXOID:          "output",
+		AssetID:         assetID,
+		TransactionHash: inputHash,
+		OutputIndex:     0,
+		Amount:          decimal.NewFromInt(1),
+		Members:         senders,
+		Threshold:       1,
+		State:           mixin.UTXOStateUnspent,
+	}}
+	members := []string{
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+	}
+	receiver, err := mixin.NewMainnetMixAddress(members, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := mixin.TransferInput{AssetID: assetID, Amount: decimal.NewFromInt(1), TraceID: "trace", Memo: "memo"}
+	input.OpponentMultisig.Receivers = members
+	input.OpponentMultisig.Threshold = 1
+
+	builder := mixin.NewLegacyTransactionBuilder(outputs)
+	builder.Hint = input.TraceID
+	builder.Memo = input.Memo
+	tx, err := (&mixin.Client{}).MakeTransaction(context.Background(), builder, []*mixin.TransactionOutput{{Address: receiver, Amount: input.Amount}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateExplicitLegacyRaw(context.Background(), &mixin.Client{}, raw, outputs, input, senders, 1, receiver); err != nil {
+		t.Fatalf("prepared mainnet raw must be accepted without random-key reconstruction: %v", err)
+	}
+
+	input.Memo = "different"
+	if err := validateExplicitLegacyRaw(context.Background(), &mixin.Client{}, raw, outputs, input, senders, 1, receiver); err == nil {
+		t.Fatal("expected a prepared raw with different transfer fields to be rejected")
+	}
+}
+
+func TestLegacyMainnetRawCannotBeReconstructedFromTrace(t *testing.T) {
+	outputs := []*mixin.MultisigUTXO{{
+		AssetID:         "asset",
+		TransactionHash: mixinnet.NewHash([]byte("input")),
+		Amount:          decimal.NewFromInt(1),
+		Members:         []string{"00000000-0000-0000-0000-000000000001"},
+		Threshold:       1,
+	}}
+	receiver, err := mixin.NewMainnetMixAddress([]string{mixinnet.GenerateAddress(rand.Reader, true).String()}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func() string {
+		builder := mixin.NewLegacyTransactionBuilder(outputs)
+		builder.Hint = "same-trace"
+		tx, err := (&mixin.Client{}).MakeTransaction(context.Background(), builder, []*mixin.TransactionOutput{{Address: receiver, Amount: decimal.NewFromInt(1)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := tx.Dump()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	if first, second := build(), build(); first == second {
+		t.Fatal("mainnet ghost keys unexpectedly reused randomness")
+	}
+}
+
+func TestValidateLegacyTransferModeRequiresExplicitMainnetRaw(t *testing.T) {
+	if err := validateLegacyTransferMode(true, "", false); err == nil {
+		t.Fatal("expected mainnet transfer without prepare or raw to be rejected")
+	}
+	if err := validateLegacyTransferMode(true, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLegacyTransferMode(true, "raw", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLegacyTransferMode(true, "raw", true); err == nil {
+		t.Fatal("expected raw and prepare conflict")
+	}
+	if err := validateLegacyTransferMode(false, "", false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveExplicitLegacyRawFindsSignedMainnetTransfer(t *testing.T) {
+	assetID := "asset"
+	senders := []string{"00000000-0000-0000-0000-000000000001"}
+	output := &mixin.MultisigUTXO{
+		UTXOID:          "output",
+		AssetID:         assetID,
+		TransactionHash: mixinnet.NewHash([]byte("input")),
+		Amount:          decimal.NewFromInt(1),
+		Members:         senders,
+		Threshold:       1,
+		State:           mixin.UTXOStateSigned,
+	}
+	members := []string{mixinnet.GenerateAddress(rand.Reader, true).String()}
+	receiver, err := mixin.NewMainnetMixAddress(members, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := mixin.TransferInput{AssetID: assetID, Amount: decimal.NewFromInt(1), TraceID: "trace", Memo: "memo"}
+	input.OpponentMultisig.Receivers = members
+	input.OpponentMultisig.Threshold = 1
+	builder := mixin.NewLegacyTransactionBuilder([]*mixin.MultisigUTXO{output})
+	builder.Hint = input.TraceID
+	builder.Memo = input.Memo
+	tx, err := (&mixin.Client{}).MakeTransaction(context.Background(), builder, []*mixin.TransactionOutput{{Address: receiver, Amount: input.Amount}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output.SignedTx = raw
+	client := &fakeExplicitLegacyResolver{outputs: []*mixin.MultisigUTXO{output}}
+
+	state, err := resolveExplicitLegacyRaw(context.Background(), client, raw, input, senders, 1, receiver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != mixin.UTXOStateSigned {
+		t.Fatalf("state = %q, want signed", state)
+	}
+	if fmt.Sprint(client.states) != "[signed]" {
+		t.Fatalf("states = %v, want only signed", client.states)
+	}
+}
+
 func TestSelectLegacyMultisigOutputsRejectsNilOutput(t *testing.T) {
 	if _, err := selectLegacyMultisigOutputs([]*mixin.MultisigUTXO{nil}, decimal.NewFromInt(1)); err == nil {
 		t.Fatal("expected nil output error")
@@ -172,6 +314,32 @@ func TestValidateLegacyMultisigRequestIgnoresMemberOrder(t *testing.T) {
 	request.Amount = decimal.NewFromInt(2)
 	if err := validateLegacyMultisigRequest(request, input, []string{"a", "b"}, 2); err == nil {
 		t.Fatal("expected amount mismatch")
+	}
+}
+
+func TestValidateLegacyMultisigRequestAllowsMissingMainnetReceiverMetadata(t *testing.T) {
+	members := []string{
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+	}
+	input := mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1)}
+	input.OpponentMultisig.Receivers = members
+	input.OpponentMultisig.Threshold = 1
+	request := &mixin.MultisigRequest{
+		RequestID: "request",
+		AssetID:   "asset",
+		Amount:    decimal.NewFromInt(1),
+		Threshold: 1,
+		Senders:   []string{"sender"},
+		Action:    mixin.MultisigActionSign,
+	}
+
+	if err := validateLegacyMultisigRequest(request, input, []string{"sender"}, 1); err != nil {
+		t.Fatalf("mainnet receiver identity is carried by the explicitly shared raw: %v", err)
+	}
+	request.Receivers = []string{"unexpected"}
+	if err := validateLegacyMultisigRequest(request, input, []string{"sender"}, 1); err == nil {
+		t.Fatal("expected unexpected receiver metadata to be rejected")
 	}
 }
 
@@ -747,10 +915,32 @@ func TestLegacyTransferRegistersCancellationCommands(t *testing.T) {
 			t.Fatalf("transfer %s command is not registered", name)
 		}
 	}
+	for _, name := range []string{"raw", "prepare"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("transfer flag --%s is not registered", name)
+		}
+	}
 }
 
 type fakeLegacyTransactionMaker struct {
 	tx *mixinnet.Transaction
+}
+
+type fakeExplicitLegacyResolver struct {
+	outputs []*mixin.MultisigUTXO
+	states  []string
+}
+
+func (f *fakeExplicitLegacyResolver) ListMultisigOutputs(_ context.Context, opt mixin.ListMultisigOutputsOption) ([]*mixin.MultisigUTXO, error) {
+	f.states = append(f.states, opt.State)
+	if opt.State == mixin.UTXOStateSigned {
+		return f.outputs, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeExplicitLegacyResolver) MakeTransaction(ctx context.Context, builder *mixin.TransactionBuilder, outputs []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
+	return (&mixin.Client{}).MakeTransaction(ctx, builder, outputs)
 }
 
 type fakeLegacyTransactionResolverClient struct {
