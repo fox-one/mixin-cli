@@ -15,6 +15,7 @@ import (
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/fox-one/mixin-sdk-go/v2/mixinnet"
+	"github.com/fox-one/pkg/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -271,11 +272,18 @@ func legacyTransferReceiver(ctx context.Context, client legacyMultisigClient, in
 		members = []string{input.OpponentID}
 		threshold = 1
 	}
+	names := make([]string, 0, len(members))
+	if _, err := uuid.FromString(members[0]); err != nil {
+		address, err := mixin.NewMainnetMixAddress(members, threshold)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create mainnet receiver address failed: %w", err)
+		}
+		return address, append(names, members...), nil
+	}
 	address, err := mixin.NewMixAddress(members, threshold)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create receiver address failed: %w", err)
 	}
-	names := make([]string, 0, len(members))
 	for _, id := range members {
 		user, err := client.ReadUser(ctx, id)
 		if err != nil {

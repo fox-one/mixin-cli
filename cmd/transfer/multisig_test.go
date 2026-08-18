@@ -3,6 +3,7 @@ package transfer
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"testing"
 
@@ -23,6 +24,31 @@ func TestSelectLegacyMultisigOutputsAcceptsExactBalance(t *testing.T) {
 	}
 	if len(selected) != 2 {
 		t.Fatalf("selected %d outputs, want 2", len(selected))
+	}
+}
+
+func TestLegacyTransferReceiverAcceptsMainnetMembers(t *testing.T) {
+	members := []string{
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+		mixinnet.GenerateAddress(rand.Reader, true).String(),
+	}
+	want, err := mixin.NewMainnetMixAddress(members, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := mixin.TransferInput{}
+	input.OpponentMultisig.Receivers = members
+	input.OpponentMultisig.Threshold = 1
+
+	got, names, err := legacyTransferReceiver(context.Background(), &mixin.Client{}, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want.String() {
+		t.Fatalf("receiver = %s, want %s", got, want)
+	}
+	if fmt.Sprint(names) != fmt.Sprint(members) {
+		t.Fatalf("receiver names = %#v, want mainnet members %#v", names, members)
 	}
 }
 
