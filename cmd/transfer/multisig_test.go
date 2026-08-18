@@ -514,16 +514,59 @@ func TestLegacyRawMatchesTransferInputs(t *testing.T) {
 	}
 }
 
-func TestResolveLegacyMultisigTransactionSkipsOutputsWhenTraceExists(t *testing.T) {
-	client := &fakeLegacyTransferLookupClient{
-		transfer: &mixin.Snapshot{TraceID: "trace"},
+func TestResolveLegacyMultisigTransactionReadsSignedRequestBeforeUnspentOutputs(t *testing.T) {
+	assetID := "asset"
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte(assetID)),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{
+			Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1)),
+			Script: mixinnet.NewThresholdScript(1),
+		}},
+		Extra: []byte("memo"),
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedOutputs := []*mixin.MultisigUTXO{{
+		UTXOID:          "output",
+		AssetID:         assetID,
+		TransactionHash: inputHash,
+		OutputIndex:     0,
+		Amount:          decimal.NewFromInt(1),
+		Members:         []string{"00000000-0000-0000-0000-000000000001"},
+		Threshold:       1,
+		State:           mixin.UTXOStateSigned,
+		SignedTx:        raw,
+	}}
+	request := &mixin.MultisigRequest{
+		RequestID:      "request",
+		AssetID:        assetID,
+		Amount:         decimal.NewFromInt(1),
+		Threshold:      1,
+		Senders:        []string{"00000000-0000-0000-0000-000000000001"},
+		Receivers:      []string{"00000000-0000-0000-0000-000000000002"},
+		Action:         mixin.MultisigActionSign,
+		Memo:           "memo",
+		RawTransaction: raw,
+	}
+	client := &fakeLegacyTransactionResolverClient{
+		outputsByState: map[string][]*mixin.MultisigUTXO{
+			mixin.UTXOStateSigned:  signedOutputs,
+			mixin.UTXOStateUnspent: {{UTXOID: "must-not-be-read"}},
+		},
+		requestsByRaw: map[string]*mixin.MultisigRequest{raw: request},
+		tx:            tx,
 	}
 	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
 
-	raw, state, outputs, err := resolveLegacyMultisigTransaction(
+	gotRaw, state, gotRequest, outputs, err := resolveLegacyMultisigTransaction(
 		context.Background(),
 		client,
-		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		mixin.TransferInput{AssetID: assetID, Amount: decimal.NewFromInt(1), TraceID: "trace", Memo: "memo", OpponentID: "00000000-0000-0000-0000-000000000002"},
 		[]string{"00000000-0000-0000-0000-000000000001"},
 		1,
 		receiver,
@@ -531,26 +574,31 @@ func TestResolveLegacyMultisigTransactionSkipsOutputsWhenTraceExists(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw != "" || state != mixin.UTXOStateSpent || outputs != nil {
-		t.Fatalf("got raw %q, state %q, outputs %#v; want completed transfer", raw, state, outputs)
+	if gotRaw != raw || state != mixin.UTXOStateSigned || gotRequest != request || outputs != nil {
+		t.Fatalf("got raw %q, state %q, request %#v, outputs %#v; want the existing signed request", gotRaw, state, gotRequest, outputs)
 	}
-	if client.listCalls != 0 {
-		t.Fatalf("listed outputs %d times after transfer lookup succeeded", client.listCalls)
+	if len(client.listOptions) != 1 || client.listOptions[0].State != mixin.UTXOStateSigned {
+		t.Fatalf("list options = %#v, want one signed-output lookup", client.listOptions)
+	}
+	if len(client.createRaws) != 1 || client.createRaws[0] != raw {
+		t.Fatalf("CreateMultisig raws = %#v, want the signed output raw", client.createRaws)
+	}
+	if got, want := fmt.Sprint(client.events), "[list:signed create make]"; got != want {
+		t.Fatalf("resolver events = %s, want %s", got, want)
 	}
 }
 
-func TestResolveLegacyMultisigTransactionListsOutputsAfterTraceNotFound(t *testing.T) {
-	wantOutputs := []*mixin.MultisigUTXO{{UTXOID: "output", AssetID: "asset", State: mixin.UTXOStateUnspent}}
-	client := &fakeLegacyTransferLookupClient{
-		transferErr: &mixin.Error{Status: 404, Code: mixin.EndpointNotFound},
-		outputs:     wantOutputs,
-	}
+func TestResolveLegacyMultisigTransactionFallsBackToUnspentOutputs(t *testing.T) {
+	unspent := []*mixin.MultisigUTXO{{UTXOID: "unspent", AssetID: "asset", State: mixin.UTXOStateUnspent}}
+	client := &fakeLegacyTransactionResolverClient{outputsByState: map[string][]*mixin.MultisigUTXO{
+		mixin.UTXOStateSigned:  nil,
+		mixin.UTXOStateUnspent: unspent,
+	}}
 	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
-
-	raw, state, outputs, err := resolveLegacyMultisigTransaction(
+	raw, state, request, outputs, err := resolveLegacyMultisigTransaction(
 		context.Background(),
 		client,
-		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace", OpponentID: "00000000-0000-0000-0000-000000000002"},
 		[]string{"00000000-0000-0000-0000-000000000001"},
 		1,
 		receiver,
@@ -558,33 +606,107 @@ func TestResolveLegacyMultisigTransactionListsOutputsAfterTraceNotFound(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw != "" || state != "" || len(outputs) != 1 || outputs[0] != wantOutputs[0] {
-		t.Fatalf("got raw %q, state %q, outputs %#v; want listed outputs", raw, state, outputs)
+	if raw != "" || state != "" || request != nil || len(outputs) != 1 || outputs[0] != unspent[0] {
+		t.Fatalf("got raw %q, state %q, request %#v, outputs %#v; want unspent fallback", raw, state, request, outputs)
 	}
-	if client.listCalls != 1 {
-		t.Fatalf("listed outputs %d times, want 1", client.listCalls)
+	if len(client.listOptions) != 3 || client.listOptions[0].State != mixin.UTXOStateSigned || client.listOptions[1].State != mixin.UTXOStateSpent || client.listOptions[2].State != mixin.UTXOStateUnspent {
+		t.Fatalf("list options = %#v, want signed, spent, then unspent", client.listOptions)
+	}
+	if len(client.createRaws) != 0 {
+		t.Fatalf("CreateMultisig called for no signed candidates: %#v", client.createRaws)
 	}
 }
 
-func TestResolveLegacyMultisigTransactionDoesNotHideLookupErrors(t *testing.T) {
-	client := &fakeLegacyTransferLookupClient{
-		transferErr: &mixin.Error{Status: 500, Code: 500, Description: "server error"},
+func TestResolveLegacyMultisigTransactionFindsCompletedTransferBeforeUnspentOutputs(t *testing.T) {
+	assetID := "asset"
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte(assetID)),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{
+			Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1)),
+			Script: mixinnet.NewThresholdScript(1),
+		}},
+		Extra: []byte("memo"),
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spent := []*mixin.MultisigUTXO{{
+		UTXOID:          "spent",
+		AssetID:         assetID,
+		TransactionHash: inputHash,
+		OutputIndex:     0,
+		Amount:          decimal.NewFromInt(1),
+		Members:         []string{"00000000-0000-0000-0000-000000000001"},
+		Threshold:       1,
+		State:           mixin.UTXOStateSpent,
+		SignedTx:        raw,
+	}}
+	client := &fakeLegacyTransactionResolverClient{
+		outputsByState: map[string][]*mixin.MultisigUTXO{
+			mixin.UTXOStateSpent:   spent,
+			mixin.UTXOStateUnspent: {{UTXOID: "must-not-be-read"}},
+		},
+		tx: tx,
 	}
 	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
-
-	_, _, _, err := resolveLegacyMultisigTransaction(
+	gotRaw, state, request, outputs, err := resolveLegacyMultisigTransaction(
 		context.Background(),
 		client,
-		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		mixin.TransferInput{AssetID: assetID, Amount: decimal.NewFromInt(1), TraceID: "trace", Memo: "memo", OpponentID: "00000000-0000-0000-0000-000000000002"},
 		[]string{"00000000-0000-0000-0000-000000000001"},
 		1,
 		receiver,
 	)
-	if err == nil {
-		t.Fatal("expected transfer lookup error")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if client.listCalls != 0 {
-		t.Fatalf("listed outputs %d times after transfer lookup failed", client.listCalls)
+	if gotRaw != raw || state != mixin.UTXOStateSpent || request != nil || outputs != nil {
+		t.Fatalf("got raw %q, state %q, request %#v, outputs %#v; want completed transaction", gotRaw, state, request, outputs)
+	}
+	if got, want := fmt.Sprint(client.events), "[list:signed list:spent make]"; got != want {
+		t.Fatalf("resolver events = %s, want %s", got, want)
+	}
+}
+
+func TestProcessLegacyMultisigRequestReusesResolvedRequest(t *testing.T) {
+	request := &mixin.MultisigRequest{
+		RequestID:      "request",
+		AssetID:        "asset",
+		Amount:         decimal.NewFromInt(1),
+		Threshold:      1,
+		Senders:        []string{"sender"},
+		Receivers:      []string{"receiver"},
+		Signers:        []string{"sender"},
+		Action:         mixin.MultisigActionSign,
+		RawTransaction: legacyRawWithSignatures(t, legacyTestTransaction(), 0),
+	}
+	client := &fakeLegacyRequestClient{created: request}
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	err := processLegacyMultisigRequestWithExisting(
+		cmd,
+		client,
+		request,
+		"sender",
+		request.RawTransaction,
+		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), OpponentID: "receiver"},
+		[]string{"sender"},
+		1,
+		func() (string, error) { return "", nil },
+		func(context.Context, string) (*mixinnet.Transaction, error) {
+			hash := mixinnet.NewHash([]byte("broadcast"))
+			return &mixinnet.Transaction{Hash: &hash}, nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.createCalls != 0 {
+		t.Fatalf("CreateMultisig called %d times for a resolved request", client.createCalls)
 	}
 }
 
@@ -605,33 +727,44 @@ type fakeLegacyTransactionMaker struct {
 	tx *mixinnet.Transaction
 }
 
-type fakeLegacyTransferLookupClient struct {
-	transfer    *mixin.Snapshot
-	transferErr error
-	outputs     []*mixin.MultisigUTXO
-	listCalls   int
+type fakeLegacyTransactionResolverClient struct {
+	outputsByState map[string][]*mixin.MultisigUTXO
+	requestsByRaw  map[string]*mixin.MultisigRequest
+	listOptions    []mixin.ListMultisigOutputsOption
+	createRaws     []string
+	events         []string
+	tx             *mixinnet.Transaction
 }
 
-func (f *fakeLegacyTransferLookupClient) ReadTransfer(context.Context, string) (*mixin.Snapshot, error) {
-	return f.transfer, f.transferErr
+func (f *fakeLegacyTransactionResolverClient) ListMultisigOutputs(_ context.Context, opt mixin.ListMultisigOutputsOption) ([]*mixin.MultisigUTXO, error) {
+	f.listOptions = append(f.listOptions, opt)
+	f.events = append(f.events, "list:"+opt.State)
+	return f.outputsByState[opt.State], nil
 }
 
-func (f *fakeLegacyTransferLookupClient) ListMultisigOutputs(context.Context, mixin.ListMultisigOutputsOption) ([]*mixin.MultisigUTXO, error) {
-	f.listCalls++
-	return f.outputs, nil
+func (f *fakeLegacyTransactionResolverClient) MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
+	f.events = append(f.events, "make")
+	return f.tx, nil
 }
 
-func (f *fakeLegacyTransferLookupClient) MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
-	return nil, nil
+func (f *fakeLegacyTransactionResolverClient) CreateMultisig(_ context.Context, action, raw string) (*mixin.MultisigRequest, error) {
+	if action != mixin.MultisigActionSign {
+		return nil, fmt.Errorf("unexpected multisig action %q", action)
+	}
+	f.createRaws = append(f.createRaws, raw)
+	f.events = append(f.events, "create")
+	return f.requestsByRaw[raw], nil
 }
 
 type fakeLegacyRequestClient struct {
-	created   *mixin.MultisigRequest
-	signed    *mixin.MultisigRequest
-	signCalls int
+	created     *mixin.MultisigRequest
+	signed      *mixin.MultisigRequest
+	createCalls int
+	signCalls   int
 }
 
 func (f *fakeLegacyRequestClient) CreateMultisig(context.Context, string, string) (*mixin.MultisigRequest, error) {
+	f.createCalls++
 	return f.created, nil
 }
 
@@ -642,6 +775,19 @@ func (f *fakeLegacyRequestClient) SignMultisig(context.Context, string, string) 
 
 func (f fakeLegacyTransactionMaker) MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
 	return f.tx, nil
+}
+
+func legacyTestTransaction() *mixinnet.Transaction {
+	inputHash := mixinnet.NewHash([]byte("input"))
+	return &mixinnet.Transaction{
+		Version: mixinnet.TxVersionLegacy,
+		Asset:   mixinnet.NewHash([]byte("asset")),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{
+			Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1)),
+			Script: mixinnet.NewThresholdScript(1),
+		}},
+	}
 }
 
 func legacyRawWithSignatures(t *testing.T, tx *mixinnet.Transaction, signerIndices ...uint16) string {

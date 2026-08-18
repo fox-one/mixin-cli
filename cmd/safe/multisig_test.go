@@ -465,6 +465,66 @@ func TestShouldContinueSafeMultisigTransferRequiresExplicitJoinShape(t *testing.
 	}
 }
 
+func TestReadSafeMultisigRequestUsesSDKReader(t *testing.T) {
+	request := &mixin.SafeMultisigRequest{RequestID: "trace"}
+	reader := &fakeSafeMultisigReader{request: request}
+	got, err := readSafeMultisigRequest(context.Background(), reader, "trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != request {
+		t.Fatalf("got %#v, want SDK response %#v", got, request)
+	}
+	if reader.idOrHash != "trace" {
+		t.Fatalf("SafeReadMultisigRequests called with %q, want trace", reader.idOrHash)
+	}
+}
+
+func TestValidateSafeReadConsistencyAllowsConcurrentSignature(t *testing.T) {
+	inputHash := mixinnet.NewHash([]byte("input"))
+	tx := &mixinnet.Transaction{
+		Version: mixinnet.TxVersion,
+		Asset:   mixinnet.NewHash([]byte("asset")),
+		Inputs:  []*mixinnet.Input{{Hash: &inputHash, Index: 0}},
+		Outputs: []*mixinnet.Output{{Amount: mixinnet.IntegerFromDecimal(decimal.NewFromInt(1))}},
+	}
+	raw, err := tx.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &mixin.SafeMultisigRequest{
+		RequestID:        "trace",
+		AssetID:          "asset",
+		KernelAssetID:    tx.Asset,
+		Amount:           decimal.NewFromInt(1),
+		SendersHash:      "senders",
+		SendersThreshold: 2,
+		Senders:          []string{"a", "b"},
+		RawTransaction:   raw,
+	}
+	later := *first
+	later.Signers = []string{"a"}
+	signed := *tx
+	signed.Signatures = []map[uint16]*mixinnet.Signature{{0: testSignature(1)}}
+	later.RawTransaction, err = signed.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSafeReadConsistency(first, &later); err != nil {
+		t.Fatalf("concurrent signature should preserve request identity: %v", err)
+	}
+}
+
+type fakeSafeMultisigReader struct {
+	request  *mixin.SafeMultisigRequest
+	idOrHash string
+}
+
+func (f *fakeSafeMultisigReader) SafeReadMultisigRequests(_ context.Context, idOrHash string) (*mixin.SafeMultisigRequest, error) {
+	f.idOrHash = idOrHash
+	return f.request, nil
+}
+
 func TestValidateSafeRequestTraceRejectsMisdirectedResponse(t *testing.T) {
 	request := &mixin.SafeMultisigRequest{RequestID: "other", TransactionHash: "hash"}
 	if err := validateSafeRequestTrace(request, "trace"); err == nil {

@@ -32,12 +32,49 @@ type safeUtxoLister interface {
 	SafeListUtxos(context.Context, mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error)
 }
 
-func readSafeMultisigRequest(ctx context.Context, client *mixin.Client, idOrHash string) (*safeMultisigRequestDetails, error) {
-	var request safeMultisigRequestDetails
-	if err := client.Get(ctx, "/safe/multisigs/"+idOrHash, nil, &request); err != nil {
+type safeMultisigReader interface {
+	SafeReadMultisigRequests(context.Context, string) (*mixin.SafeMultisigRequest, error)
+}
+
+func readSafeMultisigRequest(ctx context.Context, client safeMultisigReader, idOrHash string) (*mixin.SafeMultisigRequest, error) {
+	return client.SafeReadMultisigRequests(ctx, idOrHash)
+}
+
+func readSafeMultisigRequestWithDetails(ctx context.Context, client *mixin.Client, idOrHash string) (*safeMultisigRequestDetails, error) {
+	request, err := readSafeMultisigRequest(ctx, client, idOrHash)
+	if err != nil {
 		return nil, err
 	}
-	return &request, nil
+	var details safeMultisigRequestDetails
+	if err := client.Get(ctx, "/safe/multisigs/"+idOrHash, nil, &details); err != nil {
+		return nil, err
+	}
+	if err := validateSafeReadConsistency(request, &details.SafeMultisigRequest); err != nil {
+		return nil, fmt.Errorf("inconsistent safe multisig read: %w", err)
+	}
+	return &details, nil
+}
+
+func validateSafeReadConsistency(request, details *mixin.SafeMultisigRequest) error {
+	if request == nil || details == nil {
+		return errors.New("empty safe multisig request")
+	}
+	if request.RequestID != details.RequestID {
+		return errors.New("request identity changed")
+	}
+	if request.TransactionHash != "" && details.TransactionHash != "" && request.TransactionHash != details.TransactionHash {
+		return errors.New("transaction hash changed")
+	}
+	if request.AssetID != details.AssetID || request.KernelAssetID != details.KernelAssetID || !request.Amount.Equal(details.Amount) || request.Extra != details.Extra {
+		return errors.New("transfer fields changed")
+	}
+	if request.SendersHash != details.SendersHash || request.SendersThreshold != details.SendersThreshold || !sameSafeMembers(request.Senders, details.Senders) {
+		return errors.New("source multisig changed")
+	}
+	if err := validateSafeRequestRaw(request.RawTransaction, details.RawTransaction); err != nil {
+		return fmt.Errorf("raw transaction changed: %w", err)
+	}
+	return nil
 }
 
 func createSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.TransferInput, opt safeTransferOptions) error {
@@ -103,9 +140,9 @@ func createSafeMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input 
 		RequestID:      input.TraceID,
 		RawTransaction: raw,
 	}})
-	// Always read the canonical request back. This validates receiver details that
-	// the SDK create response omits and makes concurrent creators converge by trace.
-	details, readErr := readSafeMultisigRequest(ctx, client, input.TraceID)
+	// First read through the SDK, then fetch the receiver details omitted by its
+	// response type. This also makes concurrent creators converge by trace.
+	details, readErr := readSafeMultisigRequestWithDetails(ctx, client, input.TraceID)
 	if readErr != nil {
 		if createErr != nil {
 			return fmt.Errorf("create safe multisig request failed: %w", createErr)
@@ -988,7 +1025,7 @@ func newCmdCancelSafeMultisigSignature() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			details, err := readSafeMultisigRequest(cmd.Context(), client, trace)
+			details, err := readSafeMultisigRequestWithDetails(cmd.Context(), client, trace)
 			if err != nil {
 				return fmt.Errorf("read safe multisig request failed: %w", err)
 			}

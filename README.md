@@ -260,8 +260,8 @@ $ mixin-cli transfer --asset 965e5c6e-434c-3fa9-b780-c50f43cd955c \
 may instead pass one encoded source address with `--senders MIX...`; its members
 and threshold are decoded automatically. The existing `--opponent` or
 `--receivers` flags still identify the destination.
-The CLI first checks whether the trace already identifies a completed transfer;
-only a missing transfer falls back to scanning multisig outputs.
+The Legacy API does not index multisig requests or raw transactions by this
+trace, so the CLI recovers existing requests from the multisig outputs.
 Every signer re-runs the same command with the same trace and transfer fields;
 the first signer creates the request and later signers join it.
 

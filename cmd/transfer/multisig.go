@@ -29,10 +29,10 @@ type legacyTransactionMaker interface {
 	MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error)
 }
 
-type legacyTransferLookupClient interface {
+type legacyTransactionResolverClient interface {
 	legacyOutputLister
 	legacyTransactionMaker
-	ReadTransfer(context.Context, string) (*mixin.Snapshot, error)
+	CreateMultisig(context.Context, string, string) (*mixin.MultisigRequest, error)
 }
 
 type legacyMultisigClient interface {
@@ -71,7 +71,7 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 		return fmt.Errorf("read asset failed: %w", err)
 	}
 
-	raw, state, outputs, err := resolveLegacyMultisigTransaction(ctx, client, input, senders, senderThreshold, receiver)
+	raw, state, request, outputs, err := resolveLegacyMultisigTransaction(ctx, client, input, senders, senderThreshold, receiver)
 	if err != nil {
 		return err
 	}
@@ -112,9 +112,10 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 		return nil
 	}
 
-	return processLegacyMultisigRequest(
+	return processLegacyMultisigRequestWithExisting(
 		cmd,
 		client,
+		request,
 		client.ClientID,
 		raw,
 		input,
@@ -128,10 +129,17 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 }
 
 func processLegacyMultisigRequest(cmd *cobra.Command, client legacyMultisigRequestClient, currentID, raw string, input mixin.TransferInput, senders []string, senderThreshold uint8, readPin func() (string, error), broadcast legacyBroadcastFunc) error {
+	return processLegacyMultisigRequestWithExisting(cmd, client, nil, currentID, raw, input, senders, senderThreshold, readPin, broadcast)
+}
+
+func processLegacyMultisigRequestWithExisting(cmd *cobra.Command, client legacyMultisigRequestClient, request *mixin.MultisigRequest, currentID, raw string, input mixin.TransferInput, senders []string, senderThreshold uint8, readPin func() (string, error), broadcast legacyBroadcastFunc) error {
 	ctx := cmd.Context()
-	request, err := client.CreateMultisig(ctx, mixin.MultisigActionSign, raw)
-	if err != nil {
-		return fmt.Errorf("create multisig request failed: %w", err)
+	if request == nil {
+		var err error
+		request, err = client.CreateMultisig(ctx, mixin.MultisigActionSign, raw)
+		if err != nil {
+			return fmt.Errorf("create multisig request failed: %w", err)
+		}
 	}
 	if err := validateLegacyMultisigRequest(request, input, senders, senderThreshold); err != nil {
 		return fmt.Errorf("validate multisig request failed: %w", err)
@@ -398,41 +406,85 @@ func validateLegacySourceOutputs(outputs []*mixin.MultisigUTXO, senders []string
 	return nil
 }
 
-func findLegacyMultisigTransaction(ctx context.Context, client legacyMultisigClient, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, error) {
-	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, "")
+func findLegacyMultisigTransaction(ctx context.Context, client legacyMultisigClient, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, *mixin.MultisigRequest, error) {
+	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, mixin.UTXOStateSigned)
 	if err != nil {
-		return "", "", fmt.Errorf("list multisig outputs failed: %w", err)
+		return "", nil, fmt.Errorf("list signed multisig outputs failed: %w", err)
 	}
-	return findLegacyMultisigTransactionInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
+	return findLegacyMultisigRequestInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
 }
 
-func resolveLegacyMultisigTransaction(ctx context.Context, client legacyTransferLookupClient, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, []*mixin.MultisigUTXO, error) {
-	transfer, err := client.ReadTransfer(ctx, input.TraceID)
-	if err == nil {
-		if transfer == nil {
-			return "", "", nil, errors.New("read transfer returned an empty response")
-		}
-		return "", mixin.UTXOStateSpent, nil, nil
+func resolveLegacyMultisigTransaction(ctx context.Context, client legacyTransactionResolverClient, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, *mixin.MultisigRequest, []*mixin.MultisigUTXO, error) {
+	signedOutputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, mixin.UTXOStateSigned)
+	if err != nil {
+		return "", "", nil, nil, fmt.Errorf("list signed multisig outputs failed: %w", err)
 	}
-	if !mixin.IsErrorCodes(err, mixin.EndpointNotFound) {
-		return "", "", nil, fmt.Errorf("read transfer failed: %w", err)
+	raw, request, err := findLegacyMultisigRequestInOutputs(ctx, client, signedOutputs, input, senders, senderThreshold, receiver)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	if request != nil {
+		return raw, mixin.UTXOStateSigned, request, nil, nil
 	}
 
-	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, "")
+	spentOutputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, mixin.UTXOStateSpent)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("list multisig outputs failed: %w", err)
+		return "", "", nil, nil, fmt.Errorf("list spent multisig outputs failed: %w", err)
 	}
-	raw, state, err := findLegacyMultisigTransactionInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
+	raw, err = findLegacyRawInOutputs(ctx, client, spentOutputs, input, senders, senderThreshold, receiver)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, nil, err
 	}
-	return raw, state, outputs, nil
+	if raw != "" {
+		return raw, mixin.UTXOStateSpent, nil, nil, nil
+	}
+
+	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, mixin.UTXOStateUnspent)
+	if err != nil {
+		return "", "", nil, nil, fmt.Errorf("list unspent multisig outputs failed: %w", err)
+	}
+	return "", "", nil, outputs, nil
 }
 
-func findLegacyMultisigTransactionInOutputs(ctx context.Context, client legacyTransactionMaker, outputs []*mixin.MultisigUTXO, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, error) {
+func findLegacyMultisigRequestInOutputs(ctx context.Context, client legacyTransactionResolverClient, outputs []*mixin.MultisigUTXO, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, *mixin.MultisigRequest, error) {
 	groups, err := groupLegacyOutputsByRaw(outputs)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
+	}
+	raws := make([]string, 0, len(groups))
+	for raw := range groups {
+		raws = append(raws, raw)
+	}
+	sort.Strings(raws)
+	for _, raw := range raws {
+		request, err := client.CreateMultisig(ctx, mixin.MultisigActionSign, raw)
+		if err != nil {
+			return "", nil, fmt.Errorf("read signed multisig request failed: %w", err)
+		}
+		if err := validateLegacyRequestEnvelope(request); err != nil {
+			return "", nil, fmt.Errorf("validate signed multisig request failed: %w", err)
+		}
+		if err := validateLegacyRequestIdentity(request, raw, true); err != nil {
+			return "", nil, fmt.Errorf("validate signed multisig request failed: %w", err)
+		}
+		if err := validateLegacyMultisigRequest(request, input, senders, senderThreshold); err != nil {
+			continue
+		}
+		matched, err := legacyRawMatchesTransfer(ctx, client, raw, groups[raw], input, senders, senderThreshold, receiver)
+		if err != nil {
+			return "", nil, err
+		}
+		if matched {
+			return raw, request, nil
+		}
+	}
+	return "", nil, nil
+}
+
+func findLegacyRawInOutputs(ctx context.Context, client legacyTransactionMaker, outputs []*mixin.MultisigUTXO, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, error) {
+	groups, err := groupLegacyOutputsByRaw(outputs)
+	if err != nil {
+		return "", err
 	}
 	raws := make([]string, 0, len(groups))
 	for raw := range groups {
@@ -442,13 +494,13 @@ func findLegacyMultisigTransactionInOutputs(ctx context.Context, client legacyTr
 	for _, raw := range raws {
 		matched, err := legacyRawMatchesTransfer(ctx, client, raw, groups[raw], input, senders, senderThreshold, receiver)
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
 		if matched {
-			return raw, groups[raw][0].State, nil
+			return raw, nil
 		}
 	}
-	return "", "", nil
+	return "", nil
 }
 
 func groupLegacyOutputsByRaw(outputs []*mixin.MultisigUTXO) (map[string][]*mixin.MultisigUTXO, error) {
@@ -784,6 +836,7 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 			}
 
 			raw := opt.raw
+			var signRequest *mixin.MultisigRequest
 			if raw == "" {
 				if err := cmdutil.NormalizeMultisigSource(&opt.senders, &opt.senderThreshold); err != nil {
 					return err
@@ -799,7 +852,7 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				raw, _, err = findLegacyMultisigTransaction(ctx, client, opt.input, opt.senders, opt.senderThreshold, receiver)
+				raw, signRequest, err = findLegacyMultisigTransaction(ctx, client, opt.input, opt.senders, opt.senderThreshold, receiver)
 				if err != nil {
 					return err
 				}
@@ -812,9 +865,11 @@ func newCmdCancelMultisigSignature() *cobra.Command {
 				return nil
 			}
 
-			signRequest, err := client.CreateMultisig(ctx, mixin.MultisigActionSign, raw)
-			if err != nil {
-				return fmt.Errorf("read multisig signatures failed: %w", err)
+			if signRequest == nil {
+				signRequest, err = client.CreateMultisig(ctx, mixin.MultisigActionSign, raw)
+				if err != nil {
+					return fmt.Errorf("read multisig signatures failed: %w", err)
+				}
 			}
 			if err := validateLegacyRequestEnvelope(signRequest); err != nil {
 				return fmt.Errorf("validate multisig signatures failed: %w", err)

@@ -35,11 +35,11 @@ func NewCmdTransfer() *cobra.Command {
 			}
 
 			if shouldContinueSafeMultisigTransfer(cmd, opt) {
-				request, err := readSafeMultisigRequest(ctx, client, opt.input.TraceID)
+				request, err := readSafeMultisigRequestWithDetails(ctx, client, opt.input.TraceID)
 				if err == nil {
 					return continueSafeMultisigTransfer(cmd, client, request, opt)
 				}
-				if !mixin.IsErrorCodes(err, 404) {
+				if !mixin.IsErrorCodes(err, mixin.EndpointNotFound) {
 					return fmt.Errorf("read multisig request failed: %w", err)
 				}
 			}
