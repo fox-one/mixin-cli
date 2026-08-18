@@ -50,6 +50,70 @@ AssetId                               Symbol  Name         Balance
 Total USD Value: 0.09998898552
 ```
 
+List a Safe multisig group's balances:
+
+```bash
+$ mixin-cli safe assets \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2
+```
+
+For `safe assets`, `asset list`, `output list`, and `output legacy list`, the repeated member flags can be
+replaced by one MIX address. Its members and threshold are decoded automatically; an
+explicit `--threshold`, when provided, must match the address:
+
+```bash
+$ mixin-cli safe assets --receivers MIX...
+```
+
+Safe balances include only `unspent` outputs; `signed` and `spent` outputs are excluded.
+
+List a legacy multisig group's balances:
+
+```bash
+$ mixin-cli asset list \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2
+```
+
+### List outputs
+
+List Safe outputs:
+
+```bash
+$ mixin-cli output list \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2 \
+  --state unspent \
+  --limit 100
+```
+
+Output order defaults to `ASC`. `--order DESC` is also supported, but the CLI must scan
+the matching output history client-side because the output APIs do not reliably provide
+descending pagination. For Safe outputs, `--offset` is a sequence. In descending order,
+the offset is an exclusive upper bound.
+Use `--state` with `unspent`, `signed`, or `spent`; `--asset` accepts either an asset UUID
+or a kernel asset ID. Without `--limit`, all matching outputs are returned. A positive
+limit caps Safe results exactly.
+
+List legacy multisig outputs:
+
+```bash
+$ mixin-cli output legacy list \
+  --receivers 8017d200-7870-4b82-b53f-74bae1d2dad7 \
+  --receivers 170e40f0-627f-4af2-acf5-0f25c009e523 \
+  --threshold 2 \
+  --state unspent \
+  --limit 100
+```
+
+For legacy outputs, `--offset` is an RFC3339 timestamp. Legacy results can exceed the
+target when multiple outputs share the boundary timestamp so that the next page cannot
+silently skip tied records.
+
 ### Search asset with asset id or symbol
 
 search by asset id:
@@ -265,4 +329,3 @@ $ mixin-cli user search 25566
   "created_at": "2017-11-27T02:27:58.398423112Z"
 }
 ```
-

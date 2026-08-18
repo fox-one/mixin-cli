@@ -1,6 +1,8 @@
 package safe
 
 import (
+	"sort"
+
 	"github.com/fox-one/mixin-cli/v2/session"
 	"github.com/fox-one/mixin-sdk-go/v2"
 	"github.com/shopspring/decimal"
@@ -8,9 +10,14 @@ import (
 )
 
 func NewCmdAssets() *cobra.Command {
+	var opt struct {
+		receivers []string
+		threshold uint8
+	}
+
 	cmd := &cobra.Command{
 		Use:   "assets",
-		Short: "list assets",
+		Short: "list safe assets",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s := session.From(ctx)
@@ -20,7 +27,7 @@ func NewCmdAssets() *cobra.Command {
 				return err
 			}
 
-			utxos, err := listUnspentOutputs(ctx, client)
+			utxos, err := listUnspentOutputs(ctx, client, opt.receivers, opt.threshold)
 			if err != nil {
 				return err
 			}
@@ -36,11 +43,18 @@ func NewCmdAssets() *cobra.Command {
 				assetM[asset.AssetID] = asset
 			}
 
+			assetIDs := make([]string, 0, len(utxos))
+			for assetID := range utxos {
+				assetIDs = append(assetIDs, assetID)
+			}
+			sort.Strings(assetIDs)
+
 			cmd.Println("asset", "count", "balance")
-			for a, utxos := range utxos {
-				asset, ok := assetM[a]
+			for _, assetID := range assetIDs {
+				outputs := utxos[assetID]
+				asset, ok := assetM[assetID]
 				if !ok {
-					a, err := client.SafeReadAsset(ctx, a)
+					a, err := client.SafeReadAsset(ctx, assetID)
 					if err != nil {
 						cmd.Println("read asset failed:", err)
 						return err
@@ -48,9 +62,9 @@ func NewCmdAssets() *cobra.Command {
 					asset = a
 				}
 
-				count := len(utxos)
+				count := len(outputs)
 				balance := decimal.Zero
-				for _, utxo := range utxos {
+				for _, utxo := range outputs {
 					balance = balance.Add(utxo.Amount)
 				}
 				cmd.Println(asset.Symbol, asset.AssetID, count, balance)
@@ -58,6 +72,9 @@ func NewCmdAssets() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringSliceVar(&opt.receivers, "receivers", nil, "safe multisig members or one MIX address")
+	cmd.Flags().Uint8Var(&opt.threshold, "threshold", 0, "safe multisig threshold")
 
 	return cmd
 }
