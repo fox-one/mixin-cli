@@ -514,6 +514,80 @@ func TestLegacyRawMatchesTransferInputs(t *testing.T) {
 	}
 }
 
+func TestResolveLegacyMultisigTransactionSkipsOutputsWhenTraceExists(t *testing.T) {
+	client := &fakeLegacyTransferLookupClient{
+		transfer: &mixin.Snapshot{TraceID: "trace"},
+	}
+	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
+
+	raw, state, outputs, err := resolveLegacyMultisigTransaction(
+		context.Background(),
+		client,
+		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		[]string{"00000000-0000-0000-0000-000000000001"},
+		1,
+		receiver,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw != "" || state != mixin.UTXOStateSpent || outputs != nil {
+		t.Fatalf("got raw %q, state %q, outputs %#v; want completed transfer", raw, state, outputs)
+	}
+	if client.listCalls != 0 {
+		t.Fatalf("listed outputs %d times after transfer lookup succeeded", client.listCalls)
+	}
+}
+
+func TestResolveLegacyMultisigTransactionListsOutputsAfterTraceNotFound(t *testing.T) {
+	wantOutputs := []*mixin.MultisigUTXO{{UTXOID: "output", AssetID: "asset", State: mixin.UTXOStateUnspent}}
+	client := &fakeLegacyTransferLookupClient{
+		transferErr: &mixin.Error{Status: 404, Code: mixin.EndpointNotFound},
+		outputs:     wantOutputs,
+	}
+	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
+
+	raw, state, outputs, err := resolveLegacyMultisigTransaction(
+		context.Background(),
+		client,
+		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		[]string{"00000000-0000-0000-0000-000000000001"},
+		1,
+		receiver,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw != "" || state != "" || len(outputs) != 1 || outputs[0] != wantOutputs[0] {
+		t.Fatalf("got raw %q, state %q, outputs %#v; want listed outputs", raw, state, outputs)
+	}
+	if client.listCalls != 1 {
+		t.Fatalf("listed outputs %d times, want 1", client.listCalls)
+	}
+}
+
+func TestResolveLegacyMultisigTransactionDoesNotHideLookupErrors(t *testing.T) {
+	client := &fakeLegacyTransferLookupClient{
+		transferErr: &mixin.Error{Status: 500, Code: 500, Description: "server error"},
+	}
+	receiver := mixin.RequireNewMixAddress([]string{"00000000-0000-0000-0000-000000000002"}, 1)
+
+	_, _, _, err := resolveLegacyMultisigTransaction(
+		context.Background(),
+		client,
+		mixin.TransferInput{AssetID: "asset", Amount: decimal.NewFromInt(1), TraceID: "trace"},
+		[]string{"00000000-0000-0000-0000-000000000001"},
+		1,
+		receiver,
+	)
+	if err == nil {
+		t.Fatal("expected transfer lookup error")
+	}
+	if client.listCalls != 0 {
+		t.Fatalf("listed outputs %d times after transfer lookup failed", client.listCalls)
+	}
+}
+
 func TestLegacyTransferRegistersCancellationCommands(t *testing.T) {
 	cmd := NewCmdTransfer()
 	for _, name := range []string{"cancel", "cancel-request"} {
@@ -529,6 +603,26 @@ func TestLegacyTransferRegistersCancellationCommands(t *testing.T) {
 
 type fakeLegacyTransactionMaker struct {
 	tx *mixinnet.Transaction
+}
+
+type fakeLegacyTransferLookupClient struct {
+	transfer    *mixin.Snapshot
+	transferErr error
+	outputs     []*mixin.MultisigUTXO
+	listCalls   int
+}
+
+func (f *fakeLegacyTransferLookupClient) ReadTransfer(context.Context, string) (*mixin.Snapshot, error) {
+	return f.transfer, f.transferErr
+}
+
+func (f *fakeLegacyTransferLookupClient) ListMultisigOutputs(context.Context, mixin.ListMultisigOutputsOption) ([]*mixin.MultisigUTXO, error) {
+	f.listCalls++
+	return f.outputs, nil
+}
+
+func (f *fakeLegacyTransferLookupClient) MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error) {
+	return nil, nil
 }
 
 type fakeLegacyRequestClient struct {

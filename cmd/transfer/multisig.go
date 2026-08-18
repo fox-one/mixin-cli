@@ -29,6 +29,12 @@ type legacyTransactionMaker interface {
 	MakeTransaction(context.Context, *mixin.TransactionBuilder, []*mixin.TransactionOutput) (*mixinnet.Transaction, error)
 }
 
+type legacyTransferLookupClient interface {
+	legacyOutputLister
+	legacyTransactionMaker
+	ReadTransfer(context.Context, string) (*mixin.Snapshot, error)
+}
+
 type legacyMultisigClient interface {
 	legacyOutputLister
 	legacyTransactionMaker
@@ -65,13 +71,15 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 		return fmt.Errorf("read asset failed: %w", err)
 	}
 
-	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, "")
-	if err != nil {
-		return fmt.Errorf("list multisig outputs failed: %w", err)
-	}
-	raw, state, err := findLegacyMultisigTransactionInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
+	raw, state, outputs, err := resolveLegacyMultisigTransaction(ctx, client, input, senders, senderThreshold, receiver)
 	if err != nil {
 		return err
+	}
+	cmd.Printf("Transfer %s %s from %d/%d multisig to %s\n", input.Amount, asset.Symbol, senderThreshold, len(senders), receiverNames)
+	cmd.Println("trace id:", input.TraceID)
+	if state == mixin.UTXOStateSpent {
+		cmd.Println("transaction already completed")
+		return nil
 	}
 	if raw == "" {
 		outputs, err = selectLegacyMultisigOutputs(outputs, input.Amount)
@@ -97,16 +105,9 @@ func runMultisigTransfer(cmd *cobra.Command, client *mixin.Client, input mixin.T
 			return fmt.Errorf("dump multisig transaction failed: %w", err)
 		}
 		raw = hex.EncodeToString(payload)
-		state = mixin.UTXOStateUnspent
 	}
 
-	cmd.Printf("Transfer %s %s from %d/%d multisig to %s\n", input.Amount, asset.Symbol, senderThreshold, len(senders), receiverNames)
-	cmd.Println("trace id:", input.TraceID)
 	cmd.Println("raw transaction:", raw)
-	if state == mixin.UTXOStateSpent {
-		cmd.Println("transaction already completed")
-		return nil
-	}
 	if !yes && !conformTransfer() {
 		return nil
 	}
@@ -403,6 +404,29 @@ func findLegacyMultisigTransaction(ctx context.Context, client legacyMultisigCli
 		return "", "", fmt.Errorf("list multisig outputs failed: %w", err)
 	}
 	return findLegacyMultisigTransactionInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
+}
+
+func resolveLegacyMultisigTransaction(ctx context.Context, client legacyTransferLookupClient, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, []*mixin.MultisigUTXO, error) {
+	transfer, err := client.ReadTransfer(ctx, input.TraceID)
+	if err == nil {
+		if transfer == nil {
+			return "", "", nil, errors.New("read transfer returned an empty response")
+		}
+		return "", mixin.UTXOStateSpent, nil, nil
+	}
+	if !mixin.IsErrorCodes(err, mixin.EndpointNotFound) {
+		return "", "", nil, fmt.Errorf("read transfer failed: %w", err)
+	}
+
+	outputs, err := listLegacyMultisigOutputs(ctx, client, senders, senderThreshold, input.AssetID, "")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("list multisig outputs failed: %w", err)
+	}
+	raw, state, err := findLegacyMultisigTransactionInOutputs(ctx, client, outputs, input, senders, senderThreshold, receiver)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return raw, state, outputs, nil
 }
 
 func findLegacyMultisigTransactionInOutputs(ctx context.Context, client legacyTransactionMaker, outputs []*mixin.MultisigUTXO, input mixin.TransferInput, senders []string, senderThreshold uint8, receiver *mixin.MixAddress) (string, string, error) {
