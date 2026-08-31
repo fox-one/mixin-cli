@@ -10,6 +10,7 @@ import (
 	"github.com/fox-one/mixin-cli/v2/cmd/asset"
 	"github.com/fox-one/mixin-cli/v2/cmd/http"
 	"github.com/fox-one/mixin-cli/v2/cmd/keystore"
+	"github.com/fox-one/mixin-cli/v2/cmd/message"
 	"github.com/fox-one/mixin-cli/v2/cmd/output"
 	"github.com/fox-one/mixin-cli/v2/cmd/ownership"
 	"github.com/fox-one/mixin-cli/v2/cmd/pay"
@@ -140,6 +141,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	cmd.AddCommand(sign.NewCmdSign())
 	cmd.AddCommand(http.NewCmdHttp())
 	cmd.AddCommand(user.NewCmdUser())
+	cmd.AddCommand(message.NewCmdMessage())
 	cmd.AddCommand(upload.NewCmdUpload())
 	cmd.AddCommand(pay.NewCmdPay())
 	cmd.AddCommand(transfer.NewCmdTransfer())
