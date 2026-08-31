@@ -49,12 +49,13 @@ func NewCmdText() *cobra.Command {
 				return fmt.Errorf("read user %q failed: %w", args[0], err)
 			}
 
-			if _, err := client.CreateContactConversation(ctx, user.UserID); err != nil {
+			conversation, err := client.CreateContactConversation(ctx, user.UserID)
+			if err != nil {
 				return fmt.Errorf("create conversation failed: %w", err)
 			}
 
 			req := &mixin.MessageRequest{
-				ConversationID: mixin.UniqueConversationID(client.ClientID, user.UserID),
+				ConversationID: conversation.ConversationID,
 				RecipientID:    user.UserID,
 				MessageID:      mixin.RandomTraceID(),
 				Category:       mixin.MessageCategoryPlainText,
