@@ -9,10 +9,6 @@ import (
 	"github.com/fox-one/mixin-sdk-go/v2"
 )
 
-type safeUtxoLister interface {
-	SafeListUtxos(context.Context, mixin.SafeListUtxoOption) ([]*mixin.SafeUtxo, error)
-}
-
 func listUnspentOutputs(ctx context.Context, client safeUtxoLister, members []string, threshold uint8) (map[string][]*mixin.SafeUtxo, error) {
 	input := mixin.TransferInput{}
 	input.OpponentMultisig.Receivers = members

@@ -15,12 +15,7 @@ import (
 )
 
 func NewCmdTransfer() *cobra.Command {
-	var opt struct {
-		input  mixin.TransferInput
-		amount string
-		qrcode bool
-		yes    bool
-	}
+	var opt transferOptions
 
 	cmd := &cobra.Command{
 		Use: "transfer",
@@ -32,9 +27,25 @@ func NewCmdTransfer() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := cmdutil.NormalizeMultisigSource(&opt.senders, &opt.senderThreshold); err != nil {
+				return err
+			}
 
 			input := opt.input
+			if err := cmdutil.NormalizeMultisigDestination(&input); err != nil {
+				return err
+			}
 			input.Amount, _ = decimal.NewFromString(opt.amount)
+
+			if !opt.isMultisigSource() && (opt.raw != "" || opt.prepare) {
+				return errors.New("raw and prepare require a legacy multisig source")
+			}
+			if opt.isMultisigSource() {
+				if opt.qrcode {
+					return errors.New("qrcode is not supported for multisig source transfers")
+				}
+				return runMultisigTransfer(cmd, client, input, opt.senders, opt.senderThreshold, opt.raw, opt.prepare, opt.yes)
+			}
 
 			if input.TraceID == "" {
 				input.TraceID = mixin.RandomTraceID()
@@ -130,12 +141,34 @@ func NewCmdTransfer() *cobra.Command {
 	cmd.Flags().StringVar(&opt.input.TraceID, "trace", "", "trace id")
 	cmd.Flags().StringVar(&opt.input.Memo, "memo", "", "memo")
 	cmd.Flags().StringVar(&opt.input.OpponentID, "opponent", "", "opponent id")
-	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receivers")
+	cmd.Flags().StringSliceVar(&opt.input.OpponentMultisig.Receivers, "receivers", nil, "multisig receiver members or one MIX address")
 	cmd.Flags().Uint8Var(&opt.input.OpponentMultisig.Threshold, "threshold", 0, "multisig threshold")
+	cmd.Flags().StringSliceVar(&opt.senders, "senders", nil, "source multisig members or one MIX address")
+	cmd.Flags().Uint8Var(&opt.senderThreshold, "sender-threshold", 0, "source multisig threshold")
+	cmd.Flags().StringVar(&opt.raw, "raw", "", "prepared or signed legacy multisig raw transaction")
+	cmd.Flags().BoolVar(&opt.prepare, "prepare", false, "prepare a legacy mainnet multisig raw transaction without signing")
 	cmd.Flags().BoolVar(&opt.qrcode, "qrcode", false, "show qrcode")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "approve payment automatically")
 
+	cmd.AddCommand(newCmdCancelMultisigSignature())
+	cmd.AddCommand(newCmdCancelMultisigRequest())
+
 	return cmd
+}
+
+type transferOptions struct {
+	input           mixin.TransferInput
+	amount          string
+	senders         []string
+	senderThreshold uint8
+	raw             string
+	prepare         bool
+	qrcode          bool
+	yes             bool
+}
+
+func (opt transferOptions) isMultisigSource() bool {
+	return len(opt.senders) > 0 || opt.senderThreshold > 0
 }
 
 func conformTransfer() bool {
